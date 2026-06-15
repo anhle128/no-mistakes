@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS step_results (
     duration_ms   INTEGER,
     log_path      TEXT,
     findings_json TEXT,
+    review_handoff_json TEXT,
     error         TEXT,
     started_at    INTEGER,
     completed_at  INTEGER
@@ -72,4 +73,5 @@ var migrationStatements = []string{
 	`ALTER TABLE runs ADD COLUMN intent_source TEXT`,
 	`ALTER TABLE runs ADD COLUMN intent_session_id TEXT`,
 	`ALTER TABLE runs ADD COLUMN intent_score REAL`,
+	`ALTER TABLE step_results ADD COLUMN review_handoff_json TEXT`,
 }

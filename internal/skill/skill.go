@@ -131,6 +131,13 @@ Run the pipeline and decide on its findings as they come up:
      touches product behavior. This is a call only the user can make - see
      [Escalate ` + "`ask-user`" + ` findings](#escalate-ask-user-findings) below.
 
+   Review gates may also include ` + "`phase`" + `, ` + "`review_file`" + `, and
+   ` + "`review_file_path`" + ` fields. When present, open ` + "`review_file_path`" + ` before
+   deciding; ` + "`review_file`" + ` is the repository-relative audit path. The TUI
+   processes edited response blocks from the file; AXI automation can still answer with
+   ` + "`no-mistakes axi respond`" + `, and no-mistakes records that as an automation
+   decision in the handoff state.
+
    Choose one response:
    ` + "```sh" + `
    # accept the step as-is and continue
@@ -226,6 +233,9 @@ no-mistakes axi abort         # cancel the active run
 - The ` + "`help`" + ` list at the bottom of most responses tells you the next commands to run.
 - Errors are printed as ` + "`error: ...`" + ` on stdout with a ` + "`help`" + ` list; act on the suggestion.
 - Exit codes: ` + "`0`" + ` success, no-op, or normal decision gates, ` + "`1`" + ` failed or cancelled final outcomes, ` + "`2`" + ` bad usage.
+- Review status output can include additive ` + "`phase`" + `, ` + "`review_file`" + `, and
+  ` + "`review_file_path`" + ` fields; use ` + "`review_file_path`" + ` when present, but keep
+  reading the actual table headers because older runs and non-review gates omit them.
 
 A ` + "`gate:`" + ` waiting on you looks roughly like this - a ` + "`gate:`" + ` line naming the
 step, a ` + "`findings[N]{...}:`" + ` table with one row per finding, and a ` + "`help[N]:`" + `

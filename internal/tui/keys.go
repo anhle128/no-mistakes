@@ -67,11 +67,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "p":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, m.processReviewHandoffCmd()
+		}
 		if m.showDiff {
 			if step := awaitingStep(m.steps); step != nil {
 				m.moveFindingCursor(step.StepName, -1)
 				m.diffOffset = m.diffOffsetForCurrentFinding(step.StepName)
 			}
+		}
+		return m, nil
+
+	case "c":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, m.reviewHandoffCancelCmd()
 		}
 		return m, nil
 
@@ -148,6 +157,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case " ":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		if !m.showDiff {
 			if step := awaitingStep(m.steps); step != nil {
 				m.toggleCurrentFinding(step.StepName)
@@ -157,6 +169,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "A":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		if !m.showDiff {
 			if step := awaitingStep(m.steps); step != nil {
 				m.selectAllFindings(step.StepName)
@@ -165,6 +180,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "N":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		if !m.showDiff {
 			if step := awaitingStep(m.steps); step != nil {
 				m.clearAllFindings(step.StepName)
@@ -173,6 +191,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "e":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		if !m.showDiff {
 			if step := awaitingStep(m.steps); step != nil {
 				if item, ok := m.findingAtCursor(step.StepName); ok && item.ID != "" {
@@ -189,6 +210,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "+":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		if !m.showDiff {
 			if step := awaitingStep(m.steps); step != nil {
 				m.editor = newAddFindingEditor(step.StepName)
@@ -196,6 +220,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "D":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		if !m.showDiff {
 			if step := awaitingStep(m.steps); step != nil {
 				if item, ok := m.findingAtCursor(step.StepName); ok && item.Source == types.FindingSourceUser {
@@ -214,10 +241,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "a":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		return m, m.respondCmd(types.ActionApprove)
 	case "f":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		return m, m.respondCmd(types.ActionFix)
 	case "s":
+		if step := awaitingStep(m.steps); isReviewHandoffGate(step) {
+			return m, nil
+		}
 		return m, m.respondCmd(types.ActionSkip)
 	case "o":
 		if m.run != nil && m.run.PRURL != nil && *m.run.PRURL != "" {

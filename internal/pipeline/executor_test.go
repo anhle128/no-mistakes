@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -9,6 +10,35 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
+
+func TestExecutorRespondWithOverridesAfterKeepsGateWaitingOnPreCommitError(t *testing.T) {
+	exec := NewExecutor(nil, nil, nil, nil, nil, nil)
+	exec.waiting = true
+	exec.waitingStep = types.StepReview
+	commitErr := errors.New("audit commit failed")
+
+	err := exec.RespondWithOverridesAfter(types.StepReview, types.ActionApprove, nil, nil, nil, func() error {
+		return commitErr
+	})
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("RespondWithOverridesAfter error = %v, want %v", err, commitErr)
+	}
+	if !exec.waiting || exec.waitingStep != types.StepReview {
+		t.Fatalf("executor waiting = %v/%s, want review gate still waiting", exec.waiting, exec.waitingStep)
+	}
+
+	if err := exec.RespondWithOverrides(types.StepReview, types.ActionApprove, nil, nil, nil); err != nil {
+		t.Fatalf("retry RespondWithOverrides: %v", err)
+	}
+	select {
+	case response := <-exec.approvalCh:
+		if response.action != types.ActionApprove {
+			t.Fatalf("response action = %s, want approve", response.action)
+		}
+	default:
+		t.Fatal("expected approval response after retry")
+	}
+}
 
 // TestExecutor_StepLifecycleEvents verifies the executor emits step_started
 // and step_completed IPC events for every step in order. The broader

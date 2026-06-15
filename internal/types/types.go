@@ -118,6 +118,33 @@ const (
 	StepStatusFailed           StepStatus = "failed"
 )
 
+const (
+	ReviewPhasePreview         = "Review preview"
+	ReviewPhasePreviewComplete = "Review preview complete"
+	ReviewPhaseFixing          = "Fixing review issues"
+	ReviewPhaseFixResult       = "Review fix result"
+)
+
+// ReviewPhaseLabel returns the human-facing review sub-phase for review steps.
+// Raw step names and statuses remain the machine contract.
+func ReviewPhaseLabel(step StepName, status StepStatus) string {
+	if step != StepReview {
+		return ""
+	}
+	switch status {
+	case StepStatusRunning:
+		return ReviewPhasePreview
+	case StepStatusAwaitingApproval:
+		return ReviewPhasePreviewComplete
+	case StepStatusFixing:
+		return ReviewPhaseFixing
+	case StepStatusFixReview:
+		return ReviewPhaseFixResult
+	default:
+		return ""
+	}
+}
+
 // ApprovalAction represents user responses at approval points.
 type ApprovalAction string
 

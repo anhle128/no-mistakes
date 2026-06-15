@@ -17,6 +17,9 @@ func (m Model) awaitingActionState() (showSelectionActions bool, allowFix bool, 
 	if step == nil {
 		return false, false, 0, 0
 	}
+	if isReviewHandoffGate(step) {
+		return false, false, 0, 0
+	}
 	items := m.findingItems(step.StepName)
 	if len(items) == 0 {
 		return false, false, 0, 0

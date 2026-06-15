@@ -13,6 +13,8 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/skill"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -41,6 +43,34 @@ func TestRunViewFromDBAwaitingStep(t *testing.T) {
 	}
 	if gate.Name != string(types.StepTest) {
 		t.Errorf("gate.Name = %q, want test", gate.Name)
+	}
+}
+
+func TestRunViewFromDBIncludesOpenableReviewFilePath(t *testing.T) {
+	p := paths.WithRoot(t.TempDir())
+	run := &db.Run{ID: "run-1", RepoID: "repo-1", Branch: "feature/x", HeadSHA: "abcdef1234567890", Status: types.RunRunning}
+	state := reviewhandoff.NewState(".no-mistakes/issues/feature/review.md", "cycle-1", "digest", "content", 100)
+	raw, err := state.JSON()
+	if err != nil {
+		t.Fatalf("state JSON: %v", err)
+	}
+	steps := []*db.StepResult{{
+		StepName:          types.StepReview,
+		Status:            types.StepStatusAwaitingApproval,
+		ReviewHandoffJSON: &raw,
+	}}
+
+	rv := runViewFromDB(run, steps, p)
+	gate, ok := rv.awaitingStep()
+	if !ok {
+		t.Fatal("expected review gate")
+	}
+	wantPath := filepath.Join(p.WorktreeDir(run.RepoID, run.ID), ".no-mistakes", "issues", "feature", "review.md")
+	if gate.ReviewFile != state.RelativePath {
+		t.Fatalf("ReviewFile = %q, want %q", gate.ReviewFile, state.RelativePath)
+	}
+	if gate.ReviewFilePath != wantPath {
+		t.Fatalf("ReviewFilePath = %q, want %q", gate.ReviewFilePath, wantPath)
 	}
 }
 
@@ -107,6 +137,27 @@ func TestWriteRunObjectShape(t *testing.T) {
 	}
 }
 
+func TestWriteRunObjectShapeWithReviewHandoffColumns(t *testing.T) {
+	rv := runView{
+		ID:      "run-1",
+		Branch:  "feature/x",
+		Status:  string(types.RunRunning),
+		HeadSHA: "abcdef1234567890",
+		Steps: []stepView{
+			{Name: "review", Status: "awaiting_approval", Phase: types.ReviewPhasePreviewComplete, ReviewFile: ".no-mistakes/issues/feature/review.md", ReviewFilePath: "/tmp/run/.no-mistakes/issues/feature/review.md"},
+		},
+	}
+	out := axiDoc(runObjectField(rv))
+	for _, want := range []string{
+		"steps[1]{step,status,phase,review_file,review_file_path,findings,duration_ms}:",
+		`review,awaiting_approval,Review preview complete,.no-mistakes/issues/feature/review.md,/tmp/run/.no-mistakes/issues/feature/review.md,0,0`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("run object missing %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestWriteGateShape(t *testing.T) {
 	gate := stepView{
 		Name:   "review",
@@ -138,6 +189,26 @@ func TestWriteGateShape(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("gate missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteGateShapeWithReviewHandoffFields(t *testing.T) {
+	gate := stepView{
+		Name:           "review",
+		Status:         "awaiting_approval",
+		Phase:          types.ReviewPhasePreviewComplete,
+		ReviewFile:     ".no-mistakes/issues/feature/review.md",
+		ReviewFilePath: "/tmp/run/.no-mistakes/issues/feature/review.md",
+	}
+	out := axiDoc(gateFields(gate)...)
+	for _, want := range []string{
+		"phase: Review preview complete",
+		"review_file: .no-mistakes/issues/feature/review.md",
+		"review_file_path: /tmp/run/.no-mistakes/issues/feature/review.md",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("gate missing %q in:\n%s", want, out)
 		}
 	}
 }

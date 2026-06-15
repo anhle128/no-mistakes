@@ -114,6 +114,20 @@ When a step pauses for approval, the findings panel shows structured results:
 - Per-finding notes render inline as `> ...` and are sent with the next fix request
 - Bottom hint shows `↑ N above / ↓ N more below (j/k)` when scrolling, or `(j/k)` whenever there are multiple findings
 
+### Review file handoff
+
+When the review step pauses, no-mistakes writes the full review decision to a
+markdown file in the active run worktree and the TUI switches the review step
+label to `review file`.
+The findings panel is replaced by a compact handoff prompt because the source of
+truth is now the review file. Open the path shown by the TUI, edit the response
+block in that file, then press `p` to process it or `c` to cancel the gate.
+
+The review file contains the machine-readable response block plus the review
+findings, context, and response rules. The TUI only processes exact response
+actions from that block, so leave the block markers in place and change the
+fields inside them.
+
 ### Diff panel
 
 After a fix cycle, press `d` to toggle the diff view:
@@ -160,6 +174,8 @@ When yolo mode is on, the footer changes from `y yolo` to `y end yolo`.
 | `a` | Approve - continue to next step |
 | `f` | Fix - send selected findings to agent for fixing |
 | `s` | Skip - skip this step and continue |
+| `p` | Process edited review file - review gates only |
+| `c` | Cancel edited review file handoff - review gates only |
 | `x` | Abort - press twice to confirm (first press shows warning) |
 | `o` | Open PR URL in browser (when available) |
 
@@ -197,6 +213,13 @@ The action bar appears below the pipeline box when a step is awaiting approval:
 Review awaiting action:
  a approve  f fix (3/5)  s skip  x abort  d diff
  [space] toggle  e edit  + add  A all  N none
+```
+
+Review file handoff gates show a smaller action bar:
+
+```
+Review awaiting file response:
+ p process  c cancel
 ```
 
 The `f fix (3/5)` label shows how many findings are selected out of the total.

@@ -236,6 +236,18 @@ func TestRespondParams(t *testing.T) {
 	}
 }
 
+func TestProcessReviewHandoffParams(t *testing.T) {
+	params := ProcessReviewHandoffParams{RunID: "run123"}
+	data, _ := json.Marshal(params)
+	var got ProcessReviewHandoffParams
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RunID != "run123" {
+		t.Fatalf("run_id = %q", got.RunID)
+	}
+}
+
 func TestRunInfoRoundTrip(t *testing.T) {
 	prURL := "https://github.com/user/repo/pull/42"
 	info := RunInfo{
@@ -259,6 +271,30 @@ func TestRunInfoRoundTrip(t *testing.T) {
 	}
 	if got.PRURL == nil || *got.PRURL != prURL {
 		t.Errorf("pr_url = %v, want %q", got.PRURL, prURL)
+	}
+}
+
+func TestStepResultInfoReviewFieldsRoundTrip(t *testing.T) {
+	phase := types.ReviewPhasePreviewComplete
+	reviewFile := ".no-mistakes/issues/feature/review-issues-run.md"
+	reviewFilePath := "/tmp/no-mistakes/worktrees/run1/.no-mistakes/issues/feature/review-issues-run.md"
+	info := StepResultInfo{
+		ID:             "step1",
+		RunID:          "run1",
+		StepName:       types.StepReview,
+		StepOrder:      3,
+		Status:         types.StepStatusAwaitingApproval,
+		Phase:          &phase,
+		ReviewFile:     &reviewFile,
+		ReviewFilePath: &reviewFilePath,
+	}
+	data, _ := json.Marshal(info)
+	var got StepResultInfo
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase == nil || *got.Phase != phase || got.ReviewFile == nil || *got.ReviewFile != reviewFile || got.ReviewFilePath == nil || *got.ReviewFilePath != reviewFilePath {
+		t.Fatalf("review fields = phase %v file %v path %v", got.Phase, got.ReviewFile, got.ReviewFilePath)
 	}
 }
 

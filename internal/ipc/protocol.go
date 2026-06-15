@@ -9,16 +9,17 @@ import (
 
 // JSON-RPC 2.0 method names.
 const (
-	MethodPushReceived = "push_received"
-	MethodGetRun       = "get_run"
-	MethodGetRuns      = "get_runs"
-	MethodGetActiveRun = "get_active_run"
-	MethodRerun        = "rerun"
-	MethodSubscribe    = "subscribe"
-	MethodRespond      = "respond"
-	MethodCancelRun    = "cancel_run"
-	MethodHealth       = "health"
-	MethodShutdown     = "shutdown"
+	MethodPushReceived         = "push_received"
+	MethodGetRun               = "get_run"
+	MethodGetRuns              = "get_runs"
+	MethodGetActiveRun         = "get_active_run"
+	MethodRerun                = "rerun"
+	MethodSubscribe            = "subscribe"
+	MethodRespond              = "respond"
+	MethodProcessReviewHandoff = "process_review_handoff"
+	MethodCancelRun            = "cancel_run"
+	MethodHealth               = "health"
+	MethodShutdown             = "shutdown"
 )
 
 // JSON-RPC 2.0 error codes.
@@ -117,6 +118,10 @@ type RespondParams struct {
 	AddedFindings []types.Finding      `json:"added_findings,omitempty"`
 }
 
+type ProcessReviewHandoffParams struct {
+	RunID string `json:"run_id"`
+}
+
 // CancelRunParams cancels an active pipeline run.
 type CancelRunParams struct {
 	RunID string `json:"run_id"`
@@ -204,6 +209,9 @@ type StepResultInfo struct {
 	FindingsJSON     *string          `json:"findings_json,omitempty"`
 	ReportedFindings int              `json:"reported_findings,omitempty"`
 	FixedFindings    int              `json:"fixed_findings,omitempty"`
+	Phase            *string          `json:"phase,omitempty"`
+	ReviewFile       *string          `json:"review_file,omitempty"`
+	ReviewFilePath   *string          `json:"review_file_path,omitempty"`
 	// FixSummaries holds one entry per fix round the pipeline ran for this
 	// step, in round order: the agent's one-line fix summary, or "" when the
 	// round recorded none. Agent surfaces use it to report applied fixes.
@@ -243,6 +251,9 @@ type Event struct {
 	ReportedFindings *int            `json:"reported_findings,omitempty"`
 	FixedFindings    *int            `json:"fixed_findings,omitempty"`
 	FixSummaries     []string        `json:"fix_summaries,omitempty"`
+	Phase            *string         `json:"phase,omitempty"`
+	ReviewFile       *string         `json:"review_file,omitempty"`
+	ReviewFilePath   *string         `json:"review_file_path,omitempty"`
 	DurationMS       *int64          `json:"duration_ms,omitempty"` // execution-only duration for step events
 	PRURL            *string         `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events
 }

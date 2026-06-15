@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -1038,6 +1039,7 @@ func buildStepDetails(summaryLine string, sr *db.StepResult, rounds []*db.StepRo
 
 	if len(rounds) == 0 {
 		writeStepStatusDetail(&b, sr)
+		writeReviewHandoffAudit(&b, sr)
 		b.WriteString("</details>\n")
 		return b.String()
 	}
@@ -1091,6 +1093,7 @@ func buildStepDetails(summaryLine string, sr *db.StepResult, rounds []*db.StepRo
 		b.WriteString("\n")
 	}
 
+	writeReviewHandoffAudit(&b, sr)
 	b.WriteString("</details>\n")
 	return b.String()
 }
@@ -1124,6 +1127,31 @@ func writeFindingItems(b *strings.Builder, sr *db.StepResult, findings *types.Fi
 		b.WriteString(fmt.Sprintf("- %s %s%s\n", emoji, loc, html.EscapeString(f.Description)))
 	}
 	writeTestedDetails(b, sr, findings)
+}
+
+func writeReviewHandoffAudit(b *strings.Builder, sr *db.StepResult) {
+	if sr.StepName != types.StepReview || sr.ReviewHandoffJSON == nil {
+		return
+	}
+	state, err := reviewhandoff.ParseState(*sr.ReviewHandoffJSON)
+	if err != nil || len(state.Decisions) == 0 {
+		return
+	}
+	b.WriteString("Review handoff decisions:\n")
+	for _, d := range state.Decisions {
+		b.WriteString(fmt.Sprintf("- `%s`: %s", html.EscapeString(d.FindingID), html.EscapeString(d.Action)))
+		if d.DecisionSource != "" {
+			b.WriteString(fmt.Sprintf(" via %s", html.EscapeString(d.DecisionSource)))
+		}
+		if d.Solution != "" {
+			b.WriteString(fmt.Sprintf(" - Solution: %s", html.EscapeString(d.Solution)))
+			if d.SolutionSource != "" {
+				b.WriteString(fmt.Sprintf(" (%s)", html.EscapeString(d.SolutionSource)))
+			}
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 }
 
 // writeTestedDetails lists the commands the test step exercised. It is a no-op

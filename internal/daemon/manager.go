@@ -19,6 +19,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline/steps"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -481,7 +482,136 @@ func (m *RunManager) HandleRespondWithOverrides(runID string, step types.StepNam
 		return fmt.Errorf("no active executor for run %s", runID)
 	}
 
+	if step == types.StepReview && action != types.ActionAbort {
+		return exec.RespondWithOverridesAfter(step, action, findingIDs, instructions, addedFindings, func() error {
+			return m.recordReviewAutomationDecision(runID, action, findingIDs, instructions)
+		})
+	}
 	return exec.RespondWithOverrides(step, action, findingIDs, instructions, addedFindings)
+}
+
+func (m *RunManager) HandleProcessReviewHandoff(runID string) error {
+	m.mu.Lock()
+	exec, ok := m.executors[runID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("no active executor for run %s", runID)
+	}
+	run, err := m.db.GetRun(runID)
+	if err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	if run == nil {
+		return fmt.Errorf("run not found: %s", runID)
+	}
+	repo, err := m.db.GetRepo(run.RepoID)
+	if err != nil {
+		return fmt.Errorf("get repo: %w", err)
+	}
+	if repo == nil {
+		return fmt.Errorf("repo not found: %s", run.RepoID)
+	}
+	steps, err := m.db.GetStepsByRun(runID)
+	if err != nil {
+		return fmt.Errorf("get steps: %w", err)
+	}
+	var reviewStep *db.StepResult
+	for _, step := range steps {
+		if step.StepName == types.StepReview {
+			reviewStep = step
+			break
+		}
+	}
+	if reviewStep == nil {
+		return fmt.Errorf("review step not found for run %s", runID)
+	}
+	if reviewStep.Status != types.StepStatusAwaitingApproval && reviewStep.Status != types.StepStatusFixReview {
+		return fmt.Errorf("review step is %s, not awaiting a handoff decision", reviewStep.Status)
+	}
+	state, err := m.db.StepReviewHandoff(reviewStep.ID)
+	if err != nil {
+		return err
+	}
+	if state == nil {
+		return fmt.Errorf("review handoff state is missing")
+	}
+	if reviewStep.FindingsJSON == nil {
+		return fmt.Errorf("review findings are missing")
+	}
+	findings, err := types.ParseFindingsJSON(*reviewStep.FindingsJSON)
+	if err != nil {
+		return fmt.Errorf("parse review findings: %w", err)
+	}
+	plan, err := reviewhandoff.PrepareProcess(reviewhandoff.ProcessInput{
+		Root:     m.paths.WorktreeDir(repo.ID, run.ID),
+		RunID:    run.ID,
+		Branch:   run.Branch,
+		Status:   reviewStep.Status,
+		State:    *state,
+		Findings: findings,
+		Now:      time.Now().Unix(),
+	})
+	if err != nil {
+		return err
+	}
+	return exec.RespondWithOverridesAfter(types.StepReview, plan.Result.Action, plan.Result.FindingIDs, plan.Result.Instructions, nil, func() error {
+		if err := reviewhandoff.CommitProcess(plan); err != nil {
+			return err
+		}
+		if err := m.db.SetStepReviewHandoff(reviewStep.ID, plan.Result.State); err != nil {
+			if restoreErr := reviewhandoff.RestoreProcess(plan); restoreErr != nil {
+				return fmt.Errorf("set step review handoff: %w; rollback failed: %v", err, restoreErr)
+			}
+			return err
+		}
+		return nil
+	})
+}
+
+func (m *RunManager) recordReviewAutomationDecision(runID string, action types.ApprovalAction, findingIDs []string, instructions map[string]string) error {
+	run, err := m.db.GetRun(runID)
+	if err != nil || run == nil {
+		if err != nil {
+			return fmt.Errorf("get run: %w", err)
+		}
+		return fmt.Errorf("run not found: %s", runID)
+	}
+	steps, err := m.db.GetStepsByRun(runID)
+	if err != nil {
+		return fmt.Errorf("get steps: %w", err)
+	}
+	for _, step := range steps {
+		if step.StepName != types.StepReview || step.ReviewHandoffJSON == nil || step.FindingsJSON == nil {
+			continue
+		}
+		state, err := reviewhandoff.ParseState(*step.ReviewHandoffJSON)
+		if err != nil {
+			return fmt.Errorf("parse review handoff state: %w", err)
+		}
+		if state.ProcessedAction != reviewhandoff.ProcessedPending {
+			return nil
+		}
+		findings, err := types.ParseFindingsJSON(*step.FindingsJSON)
+		if err != nil {
+			return fmt.Errorf("parse review findings: %w", err)
+		}
+		updated := reviewhandoff.MarkAutomation(state, findings, reviewhandoff.DecisionSourceAutomation, action, findingIDs, instructions, time.Now().Unix())
+		plan, err := reviewhandoff.PrepareProcessedWrite(m.paths.WorktreeDir(run.RepoID, run.ID), updated)
+		if err != nil {
+			return err
+		}
+		if err := reviewhandoff.CommitProcessedWrite(plan); err != nil {
+			return err
+		}
+		if err := m.db.SetStepReviewHandoff(step.ID, plan.State); err != nil {
+			if restoreErr := reviewhandoff.RestoreProcessedWrite(plan); restoreErr != nil {
+				return fmt.Errorf("set step review handoff: %w; rollback failed: %v", err, restoreErr)
+			}
+			return err
+		}
+		return nil
+	}
+	return nil
 }
 
 // Shutdown cancels all active runs. Called during daemon shutdown to prevent

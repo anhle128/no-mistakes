@@ -53,7 +53,7 @@ That is a core design choice, not an implementation detail.
 3. The gate repo's `post-receive` hook notifies the daemon.
 4. The daemon creates a detached worktree for this run.
 5. The pipeline runs in order: `intent -> rebase -> review -> test -> document -> lint -> push -> pr -> ci`.
-6. If a step pauses, you can attach with the TUI or use `no-mistakes axi respond` to approve, fix, skip, or abort.
+6. If a step pauses, you can attach with the TUI or use `no-mistakes axi respond` to approve, fix, skip, or abort. Review pauses also expose an editable review file in the TUI; press `p` to process it or `c` to cancel that file handoff.
 7. After local checks pass, the push step forwards the branch upstream and the PR step creates or updates the pull request.
 8. The CI step keeps watching the open PR until it is merged or closed, and can auto-fix failures or merge conflicts when supported.
    While it watches, the TUI and terminal title surface a `Checks passed` signal once checks are green and the PR is mergeable, and `no-mistakes axi` returns `outcome: checks-passed` with instructions to summarize the run and list any pipeline fixes, so agents stop and ask you to review and merge it.
@@ -131,7 +131,7 @@ branch, marking the remaining steps as skipped.
 
 1. Execute the step
 2. If the step finds `action: auto-fix` findings, the step result is auto-fixable, and auto-fix is enabled, loop back with the agent to fix them (up to the configured limit)
-3. If blocking findings remain, or any finding has `action: ask-user`, pause and wait for user action
+3. If blocking findings remain, or any finding has `action: ask-user`, pause and wait for user action. For review pauses, the executor first writes the review handoff file and persists its state before streaming the gate update.
 4. `action: no-op` findings are informational only; the user can approve, fix selected findings, skip, or abort when the step pauses
 
 ### IPC
@@ -153,6 +153,10 @@ agent-supplied AXI intent is stored directly on the run. Raw transcript text is
 not stored in this database. Legacy `user_fix` rounds are still read as
 `auto-fix` for backward
 compatibility.
+Review step rows may also persist additive review handoff state, including the
+repo-relative review file path, current phase, content digest, and processed
+decision metadata. Live and reattached status output also exposes
+`review_file_path`, the directly openable path in the active run worktree.
 
 ## Local state
 

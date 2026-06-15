@@ -117,6 +117,14 @@ no-mistakes axi status --run <id>
 |---|---|---|---|
 | `--run` | `string` | active or most recent | Inspect a specific run ID |
 
+Review steps can include additive `phase`, `review_file`, and
+`review_file_path` fields in status output. `review_file` is the persisted
+repository-relative audit path; `review_file_path` is the directly openable file
+path for the active run worktree. Existing `axi respond` automation remains
+supported and records an automation decision in that file state; the raw step
+and status shapes remain backward-compatible when no review handoff metadata is
+present.
+
 ## no-mistakes axi logs
 
 Show the log output of one pipeline step.

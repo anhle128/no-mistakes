@@ -16,6 +16,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -86,6 +87,10 @@ func (e *Executor) Respond(step types.StepName, action types.ApprovalAction, fin
 // instructions and user-authored findings. Both are merged into the round's
 // findings on a fix action before the fix agent runs.
 func (e *Executor) RespondWithOverrides(step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, addedFindings []types.Finding) error {
+	return e.RespondWithOverridesAfter(step, action, findingIDs, instructions, addedFindings, nil)
+}
+
+func (e *Executor) RespondWithOverridesAfter(step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, addedFindings []types.Finding, beforeSend func() error) error {
 	e.mu.Lock()
 	if !e.waiting {
 		e.mu.Unlock()
@@ -94,6 +99,12 @@ func (e *Executor) RespondWithOverrides(step types.StepName, action types.Approv
 	if step != e.waitingStep {
 		e.mu.Unlock()
 		return fmt.Errorf("step mismatch: responding to %q but %q is awaiting approval", step, e.waitingStep)
+	}
+	if beforeSend != nil {
+		if err := beforeSend(); err != nil {
+			e.mu.Unlock()
+			return err
+		}
 	}
 	e.waiting = false
 	e.mu.Unlock()
@@ -365,6 +376,12 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			}
 		}
 
+		if stepName == types.StepReview {
+			if err := e.prepareReviewHandoff(ctx, run, sr, workDir, approvalStatus, outcome.Findings, roundNum); err != nil {
+				return false, fmt.Errorf("prepare review handoff: %w", err)
+			}
+		}
+
 		// Mark executor as ready to receive approval before updating DB or
 		// emitting events, so that callers who poll the DB status can
 		// immediately call Respond once they see it.
@@ -563,6 +580,16 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 		Status:     &status,
 		DurationMS: durationMS,
 	}
+	if phase := types.ReviewPhaseLabel(stepName, types.StepStatus(status)); phase != "" {
+		event.Phase = &phase
+	}
+	if reviewFile := e.reviewFileForStep(run.ID, stepName); reviewFile != "" {
+		event.ReviewFile = &reviewFile
+		if e.paths != nil {
+			reviewFilePath := filepath.Join(e.paths.WorktreeDir(run.RepoID, run.ID), filepath.FromSlash(reviewFile))
+			event.ReviewFilePath = &reviewFilePath
+		}
+	}
 	stats := e.findingStatsForStep(run.ID, stepName)
 	if stats.ReportedFindings > 0 || stats.FixedFindings > 0 {
 		reported := stats.ReportedFindings
@@ -602,6 +629,103 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 		fields["findings_count"] = findingsCount(findings)
 	}
 	telemetry.Track("step", fields)
+}
+
+func (e *Executor) prepareReviewHandoff(ctx context.Context, run *db.Run, sr *db.StepResult, workDir string, status types.StepStatus, findingsJSON string, roundNum int) error {
+	findings, err := types.ParseFindingsJSON(findingsJSON)
+	if err != nil {
+		return fmt.Errorf("parse review findings: %w", err)
+	}
+	now := time.Now().Unix()
+	var previous *reviewhandoff.State
+	if existing, err := e.db.StepReviewHandoff(sr.ID); err != nil {
+		return err
+	} else {
+		previous = existing
+	}
+	relativePath := ""
+	var priorDecisions []reviewhandoff.Decision
+	if previous != nil {
+		relativePath = previous.RelativePath
+		priorDecisions = append(priorDecisions, previous.Decisions...)
+	}
+	if relativePath == "" {
+		resolved, err := reviewhandoff.ResolvePath(ctx, reviewhandoff.PathInput{
+			WorkDir: workDir,
+			Branch:  run.Branch,
+			RunID:   run.ID,
+			BaseSHA: run.BaseSHA,
+			HeadSHA: run.HeadSHA,
+		})
+		if err != nil {
+			return err
+		}
+		relativePath = resolved
+	}
+	cycleID := fmt.Sprintf("%s-%s-%d", shortRunID(run.ID), status, roundNum)
+	content, state, err := reviewhandoff.RenderPending(reviewhandoff.RenderInput{
+		RunID:          run.ID,
+		Branch:         run.Branch,
+		Status:         status,
+		RelativePath:   relativePath,
+		CycleID:        cycleID,
+		Findings:       findings,
+		FixSummaries:   e.fixSummariesForStep(run.ID, types.StepReview),
+		PriorDecisions: priorDecisions,
+		Now:            now,
+	})
+	if err != nil {
+		return err
+	}
+	if previous != nil && previous.ProcessedAction == reviewhandoff.ProcessedPending {
+		if path, err := reviewhandoff.SafeJoin(workDir, previous.RelativePath); err == nil {
+			if current, err := os.ReadFile(path); err == nil && reviewhandoff.ContentDigest(current) != previous.GeneratedContentDigest {
+				backupRel := fmt.Sprintf("%s.superseded-%d", previous.RelativePath, now)
+				backup, err := reviewhandoff.SafeJoinForWrite(workDir, backupRel)
+				if err != nil {
+					return fmt.Errorf("validate edited pending review handoff backup: %w", err)
+				}
+				if err := os.WriteFile(backup, current, 0o644); err != nil {
+					return fmt.Errorf("preserve edited pending review handoff: %w", err)
+				}
+			}
+		}
+	}
+	if err := reviewhandoff.WritePending(workDir, relativePath, content); err != nil {
+		return err
+	}
+	if err := e.db.SetStepReviewHandoff(sr.ID, state); err != nil {
+		return err
+	}
+	return nil
+}
+
+func shortRunID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+func (e *Executor) reviewFileForStep(runID string, stepName types.StepName) string {
+	if stepName != types.StepReview {
+		return ""
+	}
+	steps, err := e.db.GetStepsByRun(runID)
+	if err != nil {
+		return ""
+	}
+	for _, step := range steps {
+		if step.StepName != stepName || step.ReviewHandoffJSON == nil {
+			continue
+		}
+		state, err := reviewhandoff.ParseState(*step.ReviewHandoffJSON)
+		if err != nil {
+			return ""
+		}
+		return state.RelativePath
+	}
+	return ""
 }
 
 func (e *Executor) findingStatsForStep(runID string, stepName types.StepName) db.StepStats {

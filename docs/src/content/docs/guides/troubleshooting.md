@@ -128,6 +128,29 @@ Symptom: a run stops with a failed step.
 Check the per-step log at `~/.no-mistakes/logs/<runID>/<step>.log`.
 Fatal step errors are appended to that log, so failures such as rejected pushes include the returned error output there instead of only appearing in `daemon.log`.
 
+## Review file will not process
+
+Symptom: the review step is paused in the `review file` phase and pressing `p`
+does not continue the run.
+
+Check that the file still contains one response block and that the action is
+lowercase:
+
+````md
+```no-mistakes-review-response review-1
+action: fix
+solution: Add the missing validation before parsing.
+```
+````
+
+Valid actions are `fix`, `accept`, and `skip`. For `fix`, put optional fix
+guidance on the one-line `solution:` field. If the solution is empty,
+no-mistakes uses recommendation option 1 from the latest trusted finding model.
+Use the path shown in the TUI or the `review_file_path` value from
+`no-mistakes axi status`; `review_file` is the repository-relative audit path.
+If the file changed after no-mistakes wrote it, the old pending copy is backed
+up next to the review file before a new one is rendered.
+
 ## `git push no-mistakes` doesn't start a pipeline
 
 Symptom: push succeeds but `no-mistakes` shows no active run.

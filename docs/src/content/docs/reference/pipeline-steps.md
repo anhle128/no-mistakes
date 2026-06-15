@@ -64,6 +64,13 @@ AI code review of your diff.
 
 **Approval:** required if any finding has severity `error` or `warning`. Findings with `action: ask-user` pause for approval instead of entering the normal auto-fix loop. This is for findings that challenge the author's intent, not routine correctness, reliability, or security fixes that may need to re-add a small amount of deleted logic. Findings with `action: auto-fix` remain eligible for the fix loop. Findings with `action: no-op` are informational only.
 
+When review pauses, the executor writes a review handoff markdown file in the
+active run worktree. The file contains the findings, context, and a
+machine-readable response block. The TUI presents this as a `review file` phase:
+open the displayed path, edit the response block, then process the file to
+approve, fix, or skip. AXI automation can still answer with `axi respond`; those
+decisions are recorded as automation in the handoff state.
+
 **Auto-fix:** the agent receives the selected previous findings plus any per-finding user notes, any selected user-authored findings from the TUI or AXI interface, and a sanitized history of prior rounds for that step, including earlier fix summaries and which findings the user left unselected. Follow-up review passes use that history to avoid re-reporting user-ignored findings unless the code now has a materially different problem. Fix commits use `no-mistakes(review): <summary>`.
 
 **Default auto-fix limit:** `0`.
@@ -127,6 +134,8 @@ Pushes the validated branch to the real upstream remote.
 **Behavior:**
 - If `commands.format` is set, runs it first
 - Stages in-repo test evidence artifacts when `test.evidence.store_in_repo` is enabled and the evidence directory is not ignored by Git
+- Stages the latest processed review handoff audit file, and fails if the
+  review handoff is missing or still pending
 - Commits any uncommitted agent changes with message `no-mistakes: apply agent fixes`
 - Queries upstream via `git ls-remote` to get the current SHA for the branch
 - Uses `--force-with-lease` when updating an existing branch (safe force-push that fails if the remote has diverged)
@@ -197,7 +206,7 @@ Each step progresses through these statuses:
 | `pending` | Not yet started |
 | `running` | Currently executing |
 | `fixing` | Agent is auto-fixing issues |
-| `awaiting_approval` | Paused, waiting for user action |
+| `awaiting_approval` | Paused, waiting for user action; review steps may surface this as the `review file` phase |
 | `fix_review` | Paused after a fix cycle, showing results for review |
 | `completed` | Finished successfully |
 | `skipped` | Pre-skipped for the run, skipped by the user, or skipped automatically by the pipeline |

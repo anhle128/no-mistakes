@@ -145,6 +145,40 @@ func (m Model) respondCmd(action types.ApprovalAction) tea.Cmd {
 	}
 }
 
+func (m Model) processReviewHandoffCmd() tea.Cmd {
+	if m.runID == "" || m.client == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		var result ipc.RespondResult
+		err := m.client.Call(ipc.MethodProcessReviewHandoff, &ipc.ProcessReviewHandoffParams{RunID: m.runID}, &result)
+		if err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
+func (m Model) reviewHandoffCancelCmd() tea.Cmd {
+	step := awaitingStep(m.steps)
+	if !isReviewHandoffGate(step) {
+		return nil
+	}
+	return func() tea.Msg {
+		params := &ipc.RespondParams{
+			RunID:  m.runID,
+			Step:   step.StepName,
+			Action: types.ActionAbort,
+		}
+		var result ipc.RespondResult
+		err := m.client.Call(ipc.MethodRespond, params, &result)
+		if err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
 func (m Model) cancelRunCmd() tea.Cmd {
 	if m.runID == "" {
 		return nil

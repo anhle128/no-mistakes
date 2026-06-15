@@ -149,6 +149,9 @@ func renderPipelineView(run *ipc.RunInfo, steps []ipc.StepResultInfo, width int,
 		icon := stepStatusIndicator(step.Status, spinnerFrame)
 		style := stepStatusStyle(step.Status)
 		label := stepLabel(step.StepName)
+		if step.Phase != nil && *step.Phase != "" {
+			label = *step.Phase
+		}
 
 		line := style.Render(icon) + " " + label
 
@@ -213,6 +216,9 @@ func renderActionBar(steps []ipc.StepResultInfo, showSelectionActions bool, allo
 	if step == nil {
 		return ""
 	}
+	if isReviewHandoffGate(step) {
+		return renderReviewHandoffActionBar(step)
+	}
 
 	var b strings.Builder
 	promptStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ansiYellow))
@@ -233,6 +239,40 @@ func renderActionBar(steps []ipc.StepResultInfo, showSelectionActions bool, allo
 	effectiveSelection := showSelectionActions && !showDiff
 	b.WriteString(renderApprovalActions(effectiveSelection, allowFix, showDiff, selectedCount, totalCount, confirmAbort, hasDiff))
 	return b.String()
+}
+
+func renderReviewHandoffActionBar(step *ipc.StepResultInfo) string {
+	var b strings.Builder
+	promptStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ansiYellow))
+	prompt := stepLabel(step.StepName) + " awaiting action:"
+	if step.Phase != nil && *step.Phase != "" {
+		prompt = *step.Phase + ":"
+	}
+	b.WriteString(promptStyle.Render(prompt))
+	b.WriteString("\n")
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiBrightBlack))
+	if step.ReportedFindings > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("Findings: %d", step.ReportedFindings)))
+		b.WriteString("\n")
+	}
+	if reviewPath := reviewFileDisplayPath(step); reviewPath != "" {
+		b.WriteString("Review file: ")
+		b.WriteString(dimStyle.Render(reviewPath))
+		b.WriteString("\n")
+	}
+	boldKey := lipgloss.NewStyle().Bold(true)
+	b.WriteString(" " + boldKey.Render("p") + " process  " + boldKey.Render("c") + " cancel")
+	return b.String()
+}
+
+func reviewFileDisplayPath(step *ipc.StepResultInfo) string {
+	if step.ReviewFilePath != nil && *step.ReviewFilePath != "" {
+		return *step.ReviewFilePath
+	}
+	if step.ReviewFile != nil && *step.ReviewFile != "" {
+		return *step.ReviewFile
+	}
+	return ""
 }
 
 func latestFixSummary(summaries []string) string {
@@ -342,7 +382,7 @@ type helpEntry struct {
 }
 
 // renderHelpOverlay renders a help box showing keybindings relevant to the current state.
-func renderHelpOverlay(width int, run *ipc.RunInfo, hasAwaitingStep bool, showDiff bool, hasDiff bool, done bool, yolo bool) string {
+func renderHelpOverlay(width int, run *ipc.RunInfo, hasAwaitingStep bool, reviewHandoffGate bool, showDiff bool, hasDiff bool, done bool, yolo bool) string {
 	boldKey := lipgloss.NewStyle().Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiBrightBlack))
 	contentWidth := width - 4
@@ -395,17 +435,25 @@ func renderHelpOverlay(width int, run *ipc.RunInfo, hasAwaitingStep bool, showDi
 		}
 		content.WriteString(section("Navigation", navEntries))
 		content.WriteString("\n")
-		actions := []helpEntry{
-			{"a", "approve"},
-			{"f", "fix"},
-			{"s", "skip"},
-			{"x x", "abort (press twice)"},
-		}
-		if hasDiff {
-			actions = append(actions, helpEntry{"d", "diff/findings toggle"})
+		var actions []helpEntry
+		if reviewHandoffGate {
+			actions = []helpEntry{
+				{"p", "process review file"},
+				{"c", "cancel review handoff"},
+			}
+		} else {
+			actions = []helpEntry{
+				{"a", "approve"},
+				{"f", "fix"},
+				{"s", "skip"},
+				{"x x", "abort (press twice)"},
+			}
+			if hasDiff {
+				actions = append(actions, helpEntry{"d", "diff/findings toggle"})
+			}
 		}
 		content.WriteString(section("Actions", actions))
-		if !showDiff {
+		if !showDiff && !reviewHandoffGate {
 			content.WriteString("\n")
 			content.WriteString(section("Selection", []helpEntry{
 				{"\u2423", "toggle current"},
@@ -460,4 +508,11 @@ func awaitingStep(steps []ipc.StepResultInfo) *ipc.StepResultInfo {
 		}
 	}
 	return nil
+}
+
+func isReviewHandoffGate(step *ipc.StepResultInfo) bool {
+	return step != nil &&
+		step.StepName == types.StepReview &&
+		(step.Status == types.StepStatusAwaitingApproval || step.Status == types.StepStatusFixReview) &&
+		step.ReviewFile != nil && *step.ReviewFile != ""
 }

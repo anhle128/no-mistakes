@@ -2,53 +2,64 @@ package types
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
-func TestAllStepsOrder(t *testing.T) {
-	steps := AllSteps()
-	if len(steps) != 9 {
-		t.Fatalf("expected 9 steps, got %d", len(steps))
-	}
-
-	expected := []StepName{StepIntent, StepRebase, StepReview, StepTest, StepDocument, StepLint, StepPush, StepPR, StepCI}
-	for i, s := range steps {
-		if s != expected[i] {
-			t.Errorf("step[%d] = %q, want %q", i, s, expected[i])
-		}
+func TestAllStepsInExecutionOrder(t *testing.T) {
+	want := []StepName{StepIntent, StepRebase, StepReview, StepTest, StepDocument, StepLint, StepPush, StepPR, StepCI}
+	if got := AllSteps(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("AllSteps = %v, want %v", got, want)
 	}
 }
 
 func TestStepNameOrder(t *testing.T) {
-	tests := []struct {
-		step StepName
-		want int
-	}{
-		{StepIntent, 1},
-		{StepRebase, 2},
-		{StepReview, 3},
-		{StepTest, 4},
-		{StepDocument, 5},
-		{StepLint, 6},
-		{StepPush, 7},
-		{StepPR, 8},
-		{StepCI, 9},
-		{StepName("unknown"), 0},
-	}
-
-	for _, tt := range tests {
-		if got := tt.step.Order(); got != tt.want {
-			t.Errorf("%q.Order() = %d, want %d", tt.step, got, tt.want)
+	for i, step := range AllSteps() {
+		if got := step.Order(); got != i+1 {
+			t.Fatalf("%s.Order() = %d, want %d", step, got, i+1)
 		}
+	}
+	if got := StepName("unknown").Order(); got != 0 {
+		t.Fatalf("unknown step order = %d, want 0", got)
 	}
 }
 
-func TestStepNameUnmarshalJSON_LegacyBabysit(t *testing.T) {
+func TestStepNameLegacyBabysitCompatibility(t *testing.T) {
 	var step StepName
 	if err := json.Unmarshal([]byte(`"babysit"`), &step); err != nil {
-		t.Fatalf("unmarshal step name: %v", err)
+		t.Fatalf("UnmarshalJSON: %v", err)
 	}
 	if step != StepCI {
-		t.Fatalf("step = %q, want %q", step, StepCI)
+		t.Fatalf("legacy babysit step = %q, want %q", step, StepCI)
+	}
+	var scanned StepName
+	if err := scanned.Scan("babysit"); err != nil {
+		t.Fatalf("Scan string: %v", err)
+	}
+	if scanned != StepCI {
+		t.Fatalf("legacy babysit scan = %q, want %q", scanned, StepCI)
+	}
+}
+
+func TestReviewPhaseLabel(t *testing.T) {
+	tests := []struct {
+		name   string
+		step   StepName
+		status StepStatus
+		want   string
+	}{
+		{"review running", StepReview, StepStatusRunning, ReviewPhasePreview},
+		{"review awaiting", StepReview, StepStatusAwaitingApproval, ReviewPhasePreviewComplete},
+		{"review fixing", StepReview, StepStatusFixing, ReviewPhaseFixing},
+		{"review fix review", StepReview, StepStatusFixReview, ReviewPhaseFixResult},
+		{"review completed omitted", StepReview, StepStatusCompleted, ""},
+		{"non review omitted", StepTest, StepStatusAwaitingApproval, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ReviewPhaseLabel(tt.step, tt.status); got != tt.want {
+				t.Fatalf("ReviewPhaseLabel(%q, %q) = %q, want %q", tt.step, tt.status, got, tt.want)
+			}
+		})
 	}
 }

@@ -64,6 +64,15 @@ func (m *Model) applyEvent(event ipc.Event) {
 		if event.StepName != nil && event.FixSummaries != nil {
 			m.setStepFixSummaries(*event.StepName, event.FixSummaries)
 		}
+		if event.StepName != nil && event.Phase != nil {
+			m.setStepPhase(*event.StepName, event.Phase)
+		}
+		if event.StepName != nil && event.ReviewFile != nil {
+			m.setStepReviewFile(*event.StepName, event.ReviewFile)
+		}
+		if event.StepName != nil && event.ReviewFilePath != nil {
+			m.setStepReviewFilePath(*event.StepName, event.ReviewFilePath)
+		}
 		// Persist duration so the step continues to display its elapsed time.
 		// Prefer the event's execution-only duration; fall back to local timing.
 		// For "fixing" status, clear the persisted duration and back-date the
@@ -207,6 +216,33 @@ func (m *Model) setStepFixSummaries(name types.StepName, summaries []string) {
 	for i := range m.steps {
 		if m.steps[i].StepName == name {
 			m.steps[i].FixSummaries = append([]string(nil), summaries...)
+			return
+		}
+	}
+}
+
+func (m *Model) setStepPhase(name types.StepName, phase *string) {
+	for i := range m.steps {
+		if m.steps[i].StepName == name {
+			m.steps[i].Phase = phase
+			return
+		}
+	}
+}
+
+func (m *Model) setStepReviewFile(name types.StepName, reviewFile *string) {
+	for i := range m.steps {
+		if m.steps[i].StepName == name {
+			m.steps[i].ReviewFile = reviewFile
+			return
+		}
+	}
+}
+
+func (m *Model) setStepReviewFilePath(name types.StepName, reviewFilePath *string) {
+	for i := range m.steps {
+		if m.steps[i].StepName == name {
+			m.steps[i].ReviewFilePath = reviewFilePath
 			return
 		}
 	}

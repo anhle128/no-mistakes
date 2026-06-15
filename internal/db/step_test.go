@@ -3,6 +3,7 @@ package db
 import (
 	"testing"
 
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -256,5 +257,41 @@ func TestUpdateStepStatus(t *testing.T) {
 	got, _ := d.GetStepResult(step.ID)
 	if got.Status != types.StepStatusAwaitingApproval {
 		t.Errorf("status = %q, want %q", got.Status, types.StepStatusAwaitingApproval)
+	}
+}
+
+func TestStepReviewHandoffRoundTrip(t *testing.T) {
+	d := openTestDB(t)
+	repo, _ := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
+	run, _ := d.InsertRun(repo.ID, "feature", "abc", "def")
+	step, _ := d.InsertStepResult(run.ID, types.StepReview)
+
+	state := reviewhandoff.NewState(".no-mistakes/issues/feature/review-issues-run.md", "cycle-1", "digest", "content", 123)
+	if err := d.SetStepReviewHandoff(step.ID, state); err != nil {
+		t.Fatalf("SetStepReviewHandoff: %v", err)
+	}
+	got, err := d.StepReviewHandoff(step.ID)
+	if err != nil {
+		t.Fatalf("StepReviewHandoff: %v", err)
+	}
+	if got == nil || got.RelativePath != state.RelativePath || got.CycleID != state.CycleID {
+		t.Fatalf("state = %+v, want %+v", got, state)
+	}
+	step, err = d.GetStepResult(step.ID)
+	if err != nil {
+		t.Fatalf("GetStepResult: %v", err)
+	}
+	if step.ReviewHandoffJSON == nil {
+		t.Fatal("expected review handoff JSON on step result")
+	}
+	if err := d.ClearStepReviewHandoff(step.ID); err != nil {
+		t.Fatalf("ClearStepReviewHandoff: %v", err)
+	}
+	got, err = d.StepReviewHandoff(step.ID)
+	if err != nil {
+		t.Fatalf("StepReviewHandoff after clear: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("state after clear = %+v, want nil", got)
 	}
 }

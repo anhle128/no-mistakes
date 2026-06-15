@@ -97,7 +97,7 @@ func TestModel_View_Width100UsesResponsiveLayout(t *testing.T) {
 
 func TestHelpOverlay_NavigationDescriptionsAligned(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
-	result := renderHelpOverlay(80, testRun(), true, true, true, false, false)
+	result := renderHelpOverlay(80, testRun(), true, false, true, true, false, false)
 	plain := stripANSI(result)
 	lines := strings.Split(plain, "\n")
 
@@ -127,7 +127,7 @@ func TestHelpOverlay_NavigationDescriptionsAligned(t *testing.T) {
 
 func TestHelpOverlay_ActionDescriptionsAligned(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
-	result := renderHelpOverlay(80, testRun(), true, false, true, false, false)
+	result := renderHelpOverlay(80, testRun(), true, false, false, true, false, false)
 	plain := stripANSI(result)
 	lines := strings.Split(plain, "\n")
 
@@ -155,10 +155,25 @@ func TestHelpOverlay_ActionDescriptionsAligned(t *testing.T) {
 	}
 }
 
+func TestHelpOverlay_ReviewHandoffActions(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	result := stripANSI(renderHelpOverlay(80, testRun(), true, true, false, false, false, false))
+	for _, want := range []string{"process review file", "cancel review handoff"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("expected %q in review handoff help, got:\n%s", want, result)
+		}
+	}
+	for _, notWant := range []string{"approve", "fix", "skip", "select all", "select none", "toggle current"} {
+		if strings.Contains(result, notWant) {
+			t.Fatalf("review handoff help should not contain %q:\n%s", notWant, result)
+		}
+	}
+}
+
 func TestHelpOverlay_ShowsRunContext(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	run := testRun()
-	result := stripANSI(renderHelpOverlay(80, run, true, false, true, false, false))
+	result := stripANSI(renderHelpOverlay(80, run, true, false, false, true, false, false))
 	if !strings.Contains(result, run.Branch) {
 		t.Fatalf("expected help overlay to show branch name, got:\n%s", result)
 	}
@@ -176,7 +191,7 @@ func TestHelpOverlay_ShowsOpenPRActionWhenPRURLPresent(t *testing.T) {
 	prURL := "https://github.com/test/repo/pull/42"
 	run.PRURL = &prURL
 
-	result := stripANSI(renderHelpOverlay(80, run, true, false, true, false, false))
+	result := stripANSI(renderHelpOverlay(80, run, true, false, false, true, false, false))
 	if !strings.Contains(result, "open PR in browser") {
 		t.Fatalf("expected help overlay to include PR browser action, got:\n%s", result)
 	}
@@ -417,7 +432,7 @@ func TestModel_View_ConsistentFooterSpacing(t *testing.T) {
 func TestHelpOverlay_SelectionDescriptionsAligned(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	// showDiff=false so selection section is visible.
-	result := renderHelpOverlay(80, testRun(), true, false, true, false, false)
+	result := renderHelpOverlay(80, testRun(), true, false, false, true, false, false)
 	plain := stripANSI(result)
 	lines := strings.Split(plain, "\n")
 

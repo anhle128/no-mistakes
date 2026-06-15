@@ -141,6 +141,9 @@ func (m Model) View() string {
 		appendExtraSection(renderCIViewWithSelection(m.run, m.steps, findings, m.logs, rightWidth, ciHeight, cursor, selected))
 	} else if !m.showHelp && !m.editorActive() {
 		if step := awaitingStep(m.steps); step != nil {
+			if isReviewHandoffGate(step) {
+				goto renderLogs
+			}
 			// Generic findings or diff for non-CI steps awaiting approval.
 			label := stepLabel(step.StepName)
 			if m.showDiff {
@@ -182,6 +185,7 @@ func (m Model) View() string {
 		}
 	}
 
+renderLogs:
 	// Log tail in a box - adaptive line count based on terminal height.
 	// In responsive layout with no other right-column content, expand to
 	// fill the remaining vertical budget so the log panel matches the
@@ -220,7 +224,8 @@ func (m Model) View() string {
 		}
 		// The help overlay is user-invoked, so render it even when the content
 		// budget is exhausted rather than silently dropping it.
-		overlay := renderHelpOverlay(boxWidth, m.run, awaitingStep(m.steps) != nil, m.showDiff, hasDiff, m.done, m.yoloMode)
+		awaiting := awaitingStep(m.steps)
+		overlay := renderHelpOverlay(boxWidth, m.run, awaiting != nil, isReviewHandoffGate(awaiting), m.showDiff, hasDiff, m.done, m.yoloMode)
 		if overlay != "" {
 			extraSections = append(extraSections, overlay)
 			if contentBudget > 0 {

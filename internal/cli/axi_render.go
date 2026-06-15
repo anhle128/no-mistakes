@@ -2,11 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	toon "github.com/toon-format/toon-go"
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +26,16 @@ type stepRow struct {
 	Status     string `toon:"status"`
 	Findings   int    `toon:"findings"`
 	DurationMS int64  `toon:"duration_ms"`
+}
+
+type reviewStepRow struct {
+	Step           string `toon:"step"`
+	Status         string `toon:"status"`
+	Phase          string `toon:"phase"`
+	ReviewFile     string `toon:"review_file"`
+	ReviewFilePath string `toon:"review_file_path"`
+	Findings       int    `toon:"findings"`
+	DurationMS     int64  `toon:"duration_ms"`
 }
 
 type findingRow struct {
@@ -59,11 +72,14 @@ type fixRow struct {
 // stepView is a render-ready view of a single pipeline step, decoupled from
 // whether it came from the daemon (ipc) or the local database.
 type stepView struct {
-	Name         string
-	Status       string
-	DurationMS   int64
-	FindingsJSON string
-	FixSummaries []string
+	Name           string
+	Status         string
+	DurationMS     int64
+	FindingsJSON   string
+	FixSummaries   []string
+	Phase          string
+	ReviewFile     string
+	ReviewFilePath string
 }
 
 // runView is a render-ready view of a pipeline run.
@@ -94,12 +110,21 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 		if s.FindingsJSON != nil {
 			sv.FindingsJSON = *s.FindingsJSON
 		}
+		if s.Phase != nil {
+			sv.Phase = *s.Phase
+		}
+		if s.ReviewFile != nil {
+			sv.ReviewFile = *s.ReviewFile
+		}
+		if s.ReviewFilePath != nil {
+			sv.ReviewFilePath = *s.ReviewFilePath
+		}
 		rv.Steps = append(rv.Steps, sv)
 	}
 	return rv
 }
 
-func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
+func runViewFromDB(r *db.Run, steps []*db.StepResult, p ...*paths.Paths) runView {
 	rv := runView{
 		ID:      r.ID,
 		Branch:  r.Branch,
@@ -116,6 +141,17 @@ func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 		}
 		if s.FindingsJSON != nil {
 			sv.FindingsJSON = *s.FindingsJSON
+		}
+		if phase := types.ReviewPhaseLabel(s.StepName, s.Status); phase != "" {
+			sv.Phase = phase
+		}
+		if s.StepName == types.StepReview && s.ReviewHandoffJSON != nil {
+			if state, err := reviewhandoff.ParseState(*s.ReviewHandoffJSON); err == nil {
+				sv.ReviewFile = state.RelativePath
+				if len(p) > 0 && p[0] != nil {
+					sv.ReviewFilePath = filepath.Join(p[0].WorktreeDir(r.RepoID, r.ID), filepath.FromSlash(state.RelativePath))
+				}
+			}
 		}
 		rv.Steps = append(rv.Steps, sv)
 	}
@@ -233,6 +269,21 @@ func runObjectField(rv runView) toon.Field {
 	}
 	fields = append(fields, toon.Field{Key: "findings", Value: rv.findingsTally()})
 
+	hasReviewColumns := false
+	for _, s := range rv.Steps {
+		if s.Phase != "" || s.ReviewFile != "" || s.ReviewFilePath != "" {
+			hasReviewColumns = true
+			break
+		}
+	}
+	if hasReviewColumns {
+		rows := make([]reviewStepRow, 0, len(rv.Steps))
+		for _, s := range rv.Steps {
+			rows = append(rows, reviewStepRow{Step: s.Name, Status: s.Status, Phase: s.Phase, ReviewFile: s.ReviewFile, ReviewFilePath: s.ReviewFilePath, Findings: s.findingCount(), DurationMS: s.DurationMS})
+		}
+		fields = append(fields, toon.Field{Key: "steps", Value: rows})
+		return toon.Field{Key: "run", Value: toon.NewObject(fields...)}
+	}
 	rows := make([]stepRow, 0, len(rv.Steps))
 	for _, s := range rv.Steps {
 		rows = append(rows, stepRow{Step: s.Name, Status: s.Status, Findings: s.findingCount(), DurationMS: s.DurationMS})
@@ -248,6 +299,15 @@ func gateFields(gate stepView) []toon.Field {
 	gfields := []toon.Field{
 		{Key: "step", Value: gate.Name},
 		{Key: "status", Value: gate.Status},
+	}
+	if gate.Phase != "" {
+		gfields = append(gfields, toon.Field{Key: "phase", Value: gate.Phase})
+	}
+	if gate.ReviewFile != "" {
+		gfields = append(gfields, toon.Field{Key: "review_file", Value: gate.ReviewFile})
+	}
+	if gate.ReviewFilePath != "" {
+		gfields = append(gfields, toon.Field{Key: "review_file_path", Value: gate.ReviewFilePath})
 	}
 	if parsed.Summary != "" {
 		gfields = append(gfields, toon.Field{Key: "summary", Value: parsed.Summary})

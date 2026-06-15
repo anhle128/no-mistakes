@@ -61,6 +61,8 @@ Every step can:
 - **Return findings** with severity (`error`, `warning`, `info`), enough context to understand the issue, a suggested fix when available, and an action (`auto-fix`, `ask-user`, `no-op`).
 - **Trigger auto-fix** if the step's `auto_fix` limit is above 0, the step result is auto-fixable, and any finding is `auto-fix`-eligible. Document and empty-command lint can instead apply safe fixes during their initial pass and report only unresolved findings.
 - **Pause for approval** if blocking findings remain after auto-fix, or if any finding is `ask-user`.
+- **Write a review handoff file** when the review step pauses, so the human
+  decision is captured in an editable repo-local audit file before push.
 - **Skip** when there's nothing to do (e.g., no diff, unsupported host).
 - **Fail** on fatal errors and stop the pipeline.
 
@@ -79,6 +81,15 @@ You can't reorder steps. You *can*:
 - Skip steps for one run with `no-mistakes --skip <steps>`, `git push -o no-mistakes.skip=<steps>`, `no-mistakes axi run --skip <steps>`, or from the TUI.
 
 See [Configuration](/no-mistakes/guides/configuration/).
+
+## Review audit files
+
+When a review handoff is processed, the push step includes the latest processed
+review file in the PR branch commit at its persisted repository-relative path.
+The audit file is staged explicitly, along with configured in-repo test
+evidence. Files merely adjacent to the review file, including `plan.md` or
+`tasks.md` anchors used for placement, are not staged just because the audit
+file lives nearby.
 
 ## What you can't configure
 

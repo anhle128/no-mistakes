@@ -17,8 +17,10 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
+	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
 var applyShellEnvToProcess = shellenv.ApplyToProcess
@@ -146,7 +148,7 @@ func RunWithOptions(p *paths.Paths, d *db.DB, stepFactory StepFactory) error {
 		})
 	}
 
-	registerHandlers(srv, mgr, d, func() { doShutdown("ipc request") })
+	registerHandlers(srv, mgr, d, p, func() { doShutdown("ipc request") })
 
 	// Write PID file
 	pidPath := p.PIDFile()
@@ -328,7 +330,7 @@ func migrateGateConfigs(ctx context.Context, p *paths.Paths) {
 	}
 }
 
-func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func()) {
+func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, pathsRoot *paths.Paths, shutdown func()) {
 	srv.Handle(ipc.MethodHealth, func(_ context.Context, _ json.RawMessage) (interface{}, error) {
 		return &ipc.HealthResult{Status: "ok"}, nil
 	})
@@ -339,30 +341,30 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 	})
 
 	srv.Handle(ipc.MethodGetRun, func(_ context.Context, params json.RawMessage) (interface{}, error) {
-		var p ipc.GetRunParams
-		if err := json.Unmarshal(params, &p); err != nil {
+		var req ipc.GetRunParams
+		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
-		run, err := d.GetRun(p.RunID)
+		run, err := d.GetRun(req.RunID)
 		if err != nil {
 			return nil, fmt.Errorf("get run: %w", err)
 		}
 		if run == nil {
-			return nil, fmt.Errorf("run not found: %s", p.RunID)
+			return nil, fmt.Errorf("run not found: %s", req.RunID)
 		}
-		steps, err := d.GetStepsByRun(p.RunID)
+		steps, err := d.GetStepsByRun(req.RunID)
 		if err != nil {
 			return nil, fmt.Errorf("get steps: %w", err)
 		}
-		return &ipc.GetRunResult{Run: runToInfo(d, run, steps)}, nil
+		return &ipc.GetRunResult{Run: runToInfo(d, pathsRoot, run, steps)}, nil
 	})
 
 	srv.Handle(ipc.MethodGetRuns, func(_ context.Context, params json.RawMessage) (interface{}, error) {
-		var p ipc.GetRunsParams
-		if err := json.Unmarshal(params, &p); err != nil {
+		var req ipc.GetRunsParams
+		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
-		runs, err := d.GetRunsByRepo(p.RepoID)
+		runs, err := d.GetRunsByRepo(req.RepoID)
 		if err != nil {
 			return nil, fmt.Errorf("get runs: %w", err)
 		}
@@ -372,17 +374,17 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 			if err != nil {
 				return nil, fmt.Errorf("get steps for run %s: %w", r.ID, err)
 			}
-			infos = append(infos, *runToInfo(d, r, steps))
+			infos = append(infos, *runToInfo(d, pathsRoot, r, steps))
 		}
 		return &ipc.GetRunsResult{Runs: infos}, nil
 	})
 
 	srv.Handle(ipc.MethodGetActiveRun, func(_ context.Context, params json.RawMessage) (interface{}, error) {
-		var p ipc.GetActiveRunParams
-		if err := json.Unmarshal(params, &p); err != nil {
+		var req ipc.GetActiveRunParams
+		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
-		run, err := d.GetActiveRun(p.RepoID, p.Branch)
+		run, err := d.GetActiveRun(req.RepoID, req.Branch)
 		if err != nil {
 			return nil, fmt.Errorf("get active run: %w", err)
 		}
@@ -393,7 +395,7 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 		if err != nil {
 			return nil, fmt.Errorf("get steps: %w", err)
 		}
-		return &ipc.GetActiveRunResult{Run: runToInfo(d, run, steps)}, nil
+		return &ipc.GetActiveRunResult{Run: runToInfo(d, pathsRoot, run, steps)}, nil
 	})
 
 	srv.Handle(ipc.MethodRerun, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -427,6 +429,17 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
 		if err := mgr.HandleRespondWithOverrides(p.RunID, p.Step, p.Action, p.FindingIDs, p.Instructions, p.AddedFindings); err != nil {
+			return nil, err
+		}
+		return &ipc.RespondResult{OK: true}, nil
+	})
+
+	srv.Handle(ipc.MethodProcessReviewHandoff, func(_ context.Context, params json.RawMessage) (interface{}, error) {
+		var p ipc.ProcessReviewHandoffParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		if err := mgr.HandleProcessReviewHandoff(p.RunID); err != nil {
 			return nil, err
 		}
 		return &ipc.RespondResult{OK: true}, nil
@@ -468,7 +481,7 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 	})
 }
 
-func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
+func runToInfo(d *db.DB, p *paths.Paths, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 	info := &ipc.RunInfo{
 		ID:        r.ID,
 		RepoID:    r.RepoID,
@@ -484,13 +497,13 @@ func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 	if len(steps) > 0 {
 		info.Steps = make([]ipc.StepResultInfo, 0, len(steps))
 		for _, s := range steps {
-			info.Steps = append(info.Steps, stepToInfo(d, s))
+			info.Steps = append(info.Steps, stepToInfo(d, p, r, s))
 		}
 	}
 	return info
 }
 
-func stepToInfo(d *db.DB, s *db.StepResult) ipc.StepResultInfo {
+func stepToInfo(d *db.DB, p *paths.Paths, r *db.Run, s *db.StepResult) ipc.StepResultInfo {
 	info := ipc.StepResultInfo{
 		ID:           s.ID,
 		RunID:        s.RunID,
@@ -507,6 +520,19 @@ func stepToInfo(d *db.DB, s *db.StepResult) ipc.StepResultInfo {
 	if stats, err := d.StepFindingStats(s); err == nil {
 		info.ReportedFindings = stats.ReportedFindings
 		info.FixedFindings = stats.FixedFindings
+	}
+	if phase := types.ReviewPhaseLabel(s.StepName, s.Status); phase != "" {
+		info.Phase = &phase
+	}
+	if s.StepName == types.StepReview && s.ReviewHandoffJSON != nil {
+		if state, err := reviewhandoff.ParseState(*s.ReviewHandoffJSON); err == nil && state.RelativePath != "" {
+			reviewFile := state.RelativePath
+			info.ReviewFile = &reviewFile
+			if p != nil && r != nil {
+				reviewFilePath := filepath.Join(p.WorktreeDir(r.RepoID, r.ID), filepath.FromSlash(state.RelativePath))
+				info.ReviewFilePath = &reviewFilePath
+			}
+		}
 	}
 	if summaries, err := d.StepFixSummaries(s.ID); err == nil {
 		info.FixSummaries = summaries

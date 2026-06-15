@@ -123,6 +123,36 @@ func TestActionBar_FixReviewPromptInView(t *testing.T) {
 	}
 }
 
+func TestActionBar_ReviewHandoffShowsProcessCancelOnly(t *testing.T) {
+	configureTUIColors()
+	run := testRun()
+	run.Steps[0].Status = types.StepStatusAwaitingApproval
+	phase := types.ReviewPhasePreviewComplete
+	reviewFile := ".no-mistakes/issues/feature/review-issues-run.md"
+	reviewFilePath := "/tmp/no-mistakes/worktrees/run/.no-mistakes/issues/feature/review-issues-run.md"
+	run.Steps[0].Phase = &phase
+	run.Steps[0].ReviewFile = &reviewFile
+	run.Steps[0].ReviewFilePath = &reviewFilePath
+	run.Steps[0].ReportedFindings = 2
+	m := NewModel("", nil, run)
+	m.width = 80
+	m.height = 50
+	m.stepFindings[types.StepReview] = `{"findings":[{"id":"review-1","severity":"warning","description":"bad","action":"auto-fix"}],"summary":"1"}`
+	m.resetFindingSelection(types.StepReview)
+
+	view := stripANSI(m.View())
+	for _, want := range []string{"Review preview complete:", "Findings: 2", "Review file: /tmp/no-mistakes/worktrees/run/.no-mistakes/issues/feature/review-issues-run.md", "p process", "c cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	for _, notWant := range []string{"a approve", "f fix", "s skip", "Findings -"} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("view should not contain %q:\n%s", notWant, view)
+		}
+	}
+}
+
 // --- Run Outcome Banner Tests ---
 
 func TestOutcomeBanner_SuccessShowsCheckmark(t *testing.T) {

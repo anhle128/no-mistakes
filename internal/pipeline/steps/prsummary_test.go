@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -47,6 +48,62 @@ func TestBuildPipelineSummary_AllClean(t *testing.T) {
 	}
 	if risk != "" {
 		t.Errorf("expected empty risk for clean run, got: %q", risk)
+	}
+}
+
+func TestBuildPipelineSummary_IncludesReviewHandoffDecisions(t *testing.T) {
+	t.Parallel()
+	processedAt := int64(200)
+	state := reviewhandoff.State{
+		Version:                reviewhandoff.StateVersion,
+		RelativePath:           ".no-mistakes/issues/feature/review-issues-run-1.md",
+		CycleID:                "cycle-1",
+		FindingDigest:          "digest-1",
+		GeneratedContentDigest: "generated-1",
+		ProcessedAction:        reviewhandoff.ProcessedFix,
+		ProcessedAt:            &processedAt,
+		DecisionSource:         reviewhandoff.DecisionSourceFile,
+		UpdatedAt:              processedAt,
+		Decisions: []reviewhandoff.Decision{
+			{
+				FindingID:      "review-1",
+				Action:         "fix",
+				Solution:       "Add validation before parsing.",
+				SolutionSource: reviewhandoff.SolutionSourceUser,
+				DecisionSource: reviewhandoff.DecisionSourceFile,
+				ProcessedAt:    processedAt,
+			},
+			{
+				FindingID:      "review-2",
+				Action:         "accept",
+				SolutionSource: reviewhandoff.SolutionSourceNone,
+				DecisionSource: reviewhandoff.DecisionSourceFile,
+				ProcessedAt:    processedAt,
+			},
+		},
+	}
+	raw, err := state.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := `{"findings":[{"id":"review-1","severity":"warning","description":"missing validation"},{"id":"review-2","severity":"info","description":"accepted tradeoff"}],"summary":"2 findings"}`
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepReview, Status: types.StepStatusCompleted, FindingsJSON: &findings, ReviewHandoffJSON: &raw},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {{Round: 1, Trigger: "initial", FindingsJSON: &findings, DurationMS: 500}},
+	}
+
+	md, _ := BuildPipelineSummary(steps, rounds)
+
+	for _, want := range []string{
+		"Review handoff decisions:",
+		"`review-1`: fix via file - Solution: Add validation before parsing. (user)",
+		"`review-2`: accept via file",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("expected %q in pipeline summary, got:\n%s", want, md)
+		}
 	}
 }
 

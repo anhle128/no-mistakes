@@ -39,3 +39,13 @@ Why it went wrong: I stayed in interview mode for a question that was partly dis
 Rule: In source-backed grill-me sessions, inspect current tests before asking about test coverage. Only ask the user about product-level acceptance or risk appetite after separating existing coverage from new behavior gaps.
 
 Relevant context: `internal/pipeline/steps/review_test.go`, `internal/tui/findings_test.go`, `internal/tui/action_bar_test.go`, `internal/cli/axi_drive_test.go`.
+
+## 2026-06-15 - Trim analyzebatch field separators before applying
+
+What happened: While applying `speckit-analyzebatch` resolutions, I parsed `After:` lines with only one optional separator space. Resolutions written as `After:  <replacement>` kept one leading space in the replacement and temporarily broke Markdown list/table alignment in `spec.md`, `plan.md`, and `tasks.md`.
+
+Why it went wrong: I treated the presentation spacing after `After:` as payload instead of normalizing the field separator used by the findings template. The content checks looked for substrings and did not assert line starts.
+
+Rule: For analyzebatch payload fields, strip the template separator after `Before:`/`After:` before applying, then verify replacements at line boundaries for Markdown list/table rows.
+
+Relevant context: `specs/001-review-file-handoff/analyze-findings-applied-2026-06-15-220835.md`, `specs/001-review-file-handoff/spec.md`, `specs/001-review-file-handoff/plan.md`, `specs/001-review-file-handoff/tasks.md`.
