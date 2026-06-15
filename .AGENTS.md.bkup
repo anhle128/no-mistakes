@@ -1,0 +1,145 @@
+# AGENTS.md
+
+This file is for agentic coding tools working in this repo.
+
+This repository is a Go CLI app named `no-mistakes`.
+The binary entrypoint is `cmd/no-mistakes`.
+Most implementation code lives under `internal/`.
+
+**Environment**
+
+- Go version: `1.25.0` from `go.mod`
+- Build tooling: standard Go toolchain plus `Makefile`
+- CLI/UI libraries: `cobra`, `bubbletea`, `bubbles`, `lipgloss`
+- Database: SQLite via `modernc.org/sqlite`
+
+**Primary Commands**
+
+- Build with release metadata: `make build`
+- Plain build: `go build -o ./bin/no-mistakes ./cmd/no-mistakes`
+- Install locally: `make install`
+- Cross-compile archives: `make dist`
+- Run unit/integration tests: `make test`
+- Run unit/integration tests directly: `go test -race ./...`
+- Run end-to-end tests: `make e2e`
+- Re-record end-to-end fixtures: `make e2e-record`
+- Regenerate the committed agent skill: `make skill`
+- Run skill drift check and vet: `make lint`
+- Run vet directly: `go vet ./...`
+- Format all Go files: `make fmt`
+- Format directly: `gofmt -w .`
+- Check formatting only: `gofmt -l .`
+- Clean build output: `make clean`
+
+**Single-Test Commands**
+
+- Run one package: `go test ./internal/cli`
+- Run one package with race detector: `go test -race ./internal/cli`
+- Run one top-level test: `go test ./internal/update -run '^TestCompareVersions$'`
+- Run a subset by regex: `go test ./internal/tui -run 'TestModel_'`
+- Re-run without test cache: `go test ./internal/cli -run '^TestDoctorBasic$' -count=1`
+
+Safest local verification sequence after non-trivial changes:
+
+- `gofmt -w .`
+- `make lint`
+- `go test -race ./...`
+- `make e2e` when touching agent integrations, the e2e harness, or recorded fixtures
+- `go build -o ./bin/no-mistakes ./cmd/no-mistakes`
+
+**Project Layout**
+
+- `cmd/no-mistakes`: process entrypoint
+- `internal/cli`: cobra commands and CLI wiring
+- `internal/daemon`: background daemon and run management
+- `internal/pipeline` and `internal/pipeline/steps`: orchestration plus review/test/lint/push/PR/CI steps
+- `internal/agent`: Claude, Codex, Rovo Dev, OpenCode, Pi, and ACP/acpx integrations
+- `internal/git`, `internal/ipc`, `internal/config`, `internal/db`, `internal/paths`, `internal/types`: shared infrastructure
+- `internal/tui`: terminal UI
+
+**Documentation**
+
+- Keep `README.md` concise and high-level. The bar needs to be extremely high for what has to show up there.
+- Do not put technical details or deep reference material in `README.md`.
+- Most documentation should live in `docs/` which is the published docs site.
+
+**Context, Concurrency, and Processes**
+
+- Thread `context.Context` through long-running, subprocess, and networked work.
+- Prefer `exec.CommandContext` for subprocesses.
+- Use derived contexts and timeouts for cleanup and HTTP calls.
+- Use `context.Background()` mainly at top-level boundaries, background tasks, or in tests.
+- Protect shared mutable state with `sync.Mutex`, `sync.RWMutex`, `sync.Map`, or `atomic` where appropriate.
+- Be explicit about ownership and cleanup of goroutines, worktrees, temp dirs, and channels.
+
+**Filesystem and Paths**
+
+- Use `filepath.Join` and related helpers.
+- Respect `NM_HOME` when working with app state.
+- Tests should isolate filesystem state with `t.TempDir()` and `t.Setenv("NM_HOME", ...)`.
+- Existing code typically uses `0o755` for directories and `0o644` for files such as logs.
+- On macOS, remember that path comparisons may need symlink resolution like `/var` vs `/private/var`.
+
+**Testing Conventions**
+
+- Tests live next to the code in `*_test.go` files.
+- Use the standard `testing` package.
+- Table-driven tests are common and use `tests := []struct { ... }` plus `t.Run`.
+- Use `t.Helper()` in helpers.
+- Use `t.TempDir()` for isolated filesystem state.
+- Use `t.Setenv()` for environment-dependent behavior.
+- Prefer creating real git repos in temp directories instead of relying on heavy mocking.
+- CLI tests often capture output and assert with `strings.Contains`.
+- Prefer e2e tests, new or existing, for behavior that crosses a process or I/O boundary: CLI flags, config loading, git operations, agent spawning, daemon/process coordination, stdout/stderr, and recorded fixtures.
+- Unit-test pure helpers and tightly scoped package behavior where speed and failure localization are worth more than full-product realism.
+- Prefer targeted package tests while iterating, then finish with `go test -race ./...` and `make e2e` when your change affects those process or I/O boundaries.
+- The e2e suite lives behind the `e2e` build tag, so it is excluded from `go test ./...` and runs separately in CI via `make e2e`.
+
+**When Making Changes**
+
+- Whenever you must bring in new dependencies, check latest documentation for knowledge, and discuss with the user.
+- Always use test driven development for bug fixes and feature development.
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **no-mistakes** (12739 symbols, 37422 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
+- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/no-mistakes/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/no-mistakes/clusters` | All functional areas |
+| `gitnexus://repo/no-mistakes/processes` | All execution flows |
+| `gitnexus://repo/no-mistakes/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

@@ -329,6 +329,22 @@ func renderFindingsRange(f *findings, width int, cursor int, selected map[string
 		}
 		b.WriteString(desc + "\n")
 
+		if item.Context != "" {
+			ctx := wrapIndentedText("Context: "+item.Context, width, 8)
+			if idx != cursor {
+				ctx = dimStyle.Render(ctx)
+			}
+			b.WriteString(ctx + "\n")
+		}
+
+		if item.SuggestedFix != "" {
+			fix := wrapIndentedText("Solution: "+item.SuggestedFix, width, 8)
+			if idx != cursor {
+				fix = dimStyle.Render(fix)
+			}
+			b.WriteString(fix + "\n")
+		}
+
 		if item.UserInstructions != "" {
 			instr := wrapIndentedText("> "+item.UserInstructions, width, 8)
 			b.WriteString(blueStyle.Render(instr) + "\n")

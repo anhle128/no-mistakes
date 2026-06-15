@@ -103,6 +103,7 @@ func TestActionBar_FixReviewPromptInView(t *testing.T) {
 	configureTUIColors()
 	run := testRun()
 	run.Steps[0].Status = types.StepStatusFixReview
+	run.Steps[0].FixSummaries = []string{"remove unsafe fallback"}
 	m := NewModel("", nil, run)
 	m.width = 80
 	m.height = 50
@@ -116,6 +117,9 @@ func TestActionBar_FixReviewPromptInView(t *testing.T) {
 	}
 	if strings.Contains(view, "Review awaiting action") {
 		t.Errorf("did not expect awaiting-action prompt in full view for FixReview step, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Applied fix: remove unsafe fallback") {
+		t.Errorf("expected applied fix summary in full view for FixReview step, got:\n%s", view)
 	}
 }
 

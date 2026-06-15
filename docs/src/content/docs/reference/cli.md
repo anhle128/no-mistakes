@@ -75,7 +75,7 @@ When starting a new run, `axi run` refuses the default branch and uncommitted wo
 Reattaching to an in-flight run does not require `--intent`.
 With `--yes`, `axi run` treats both `action: auto-fix` and `action: ask-user` findings as standing consent for the pipeline to fix them by selecting every finding, then accepts the resulting fix review.
 Gates with no findings or only `action: no-op` findings are approved as-is, and each step is fixed at most once so unresolved findings do not loop forever.
-Without `--yes`, an agent driving `axi run` should stop when a gate contains `action: ask-user` findings and relay each finding's ID, file, and full description to the user before responding.
+Without `--yes`, an agent driving `axi run` should stop when a gate contains `action: ask-user` findings and relay each finding's ID, file, full description, context, and suggested fix to the user before responding.
 When the CI step is still monitoring an open PR and checks are green, `axi run` exits successfully with `outcome: checks-passed` instead of waiting for a human merge.
 Treat that as the agent stopping point: ask the user to review and merge the PR from the `help` line.
 Successful outcomes (`checks-passed` and `passed`) also carry `help` instructions telling the agent to summarize the run.

@@ -59,7 +59,7 @@ AI code review of your diff.
 - Filters out files matching `ignore_patterns` from the repo config
 - Sends the filtered diff to the agent with structured review instructions and a structured output schema
 - Includes user intent when the run has supplied intent or transcript matching found a relevant local agent session
-- Agent returns findings with severity (`error`, `warning`, `info`), file location, description, and an `action` (`no-op`, `auto-fix`, `ask-user`)
+- Agent returns findings with severity (`error`, `warning`, `info`), file location, short description, detailed context, suggested fix, and an `action` (`no-op`, `auto-fix`, `ask-user`)
 - Also returns a `risk_level` (`low`, `medium`, `high`) and `risk_rationale`
 
 **Approval:** required if any finding has severity `error` or `warning`. Findings with `action: ask-user` pause for approval instead of entering the normal auto-fix loop. This is for findings that challenge the author's intent, not routine correctness, reliability, or security fixes that may need to re-add a small amount of deleted logic. Findings with `action: auto-fix` remain eligible for the fix loop. Findings with `action: no-op` are informational only.

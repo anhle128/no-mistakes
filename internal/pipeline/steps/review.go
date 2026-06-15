@@ -50,8 +50,12 @@ Context:
 
 Rules:
 - Always start with double checking whether the findings are legitimate.
+- Find the root cause and fix it; do not choose a work-around solution.
 - Before changing code, identify whether each finding is a local defect or a symptom of a deeper design, abstraction, validation, ownership, or test-coverage flaw. Prefer the smallest correct root-cause fix within the changed area over patching only the reported line.
 - If a narrow fix would leave the same class of bug likely elsewhere, fix the deepest practical cause instead.
+- Optimize for scalable, durable, maintainable fixes that prevent the same class of issue from recurring.
+- Prefer strengthening shared validation, invariants, ownership boundaries, or existing abstractions over adding one-off guards at the reported line.
+- Avoid tactical patches that only silence the current finding while leaving the underlying failure mode intact.
 - Avoid resolving a finding by removing or reverting the author's intentional code in their original 1st commit. If the original change introduced something on purpose, fix it forward (e.g. add validation, handle edge cases, tighten logic) rather than deleting it. Similarly, if the original change intentionally deleted or simplified code, do not restore or re-add the removed code unless the finding is a legitimate correctness, reliability, or security issue and the smallest reasonable fix happens to reintroduce a small amount of previously deleted logic. When in doubt about whether code is intentional, leave it and report the finding as unresolved.
 - Do not add code comments explaining your fixes.
 - Verify that the issues are resolved before finishing.
@@ -156,7 +160,10 @@ Task:
 Rules:
 - Anchor every finding to a specific file and one-indexed line number in the changed code when possible.
 - Use severity "error" for problems that should absolutely not get merged, "warning" for things that are worth addressing but can be done in a follow up, and "info" for things that are nice to have.
-- Be concise and actionable. No generic advice like "add more tests".
+- Use description as a short issue title, not the full explanation.
+- For every finding, include a context field explaining the current behavior, the relevant code path or invariant, why it matters, and enough project background that a reviewer who does not know this project can understand the issue without opening unrelated files.
+- For every finding, include a suggested_fix field that explains what should change before the user presses fix. Make it concrete enough for the user to decide whether authorizing the fix is acceptable; avoid vague advice like "add validation" or "add tests" without saying where and what behavior to protect.
+- Be detailed, specific, and actionable. No generic advice like "add more tests".
 - Only comment on things that genuinely matter.
 - Do NOT report styling, formatting, linting, compilation, or type-checking issues.
 - If the change is clean, return an empty findings array.
@@ -219,6 +226,8 @@ func sanitizedPreviousFindingsForPrompt(raw string) string {
 		findings.Items[i].Severity = sanitizePromptText(findings.Items[i].Severity)
 		findings.Items[i].File = sanitizePromptText(findings.Items[i].File)
 		findings.Items[i].Description = sanitizePromptMultilineText(findings.Items[i].Description)
+		findings.Items[i].Context = sanitizePromptMultilineText(findings.Items[i].Context)
+		findings.Items[i].SuggestedFix = sanitizePromptMultilineText(findings.Items[i].SuggestedFix)
 		findings.Items[i].Source = sanitizePromptText(findings.Items[i].Source)
 		findings.Items[i].UserInstructions = sanitizePromptMultilineText(findings.Items[i].UserInstructions)
 	}

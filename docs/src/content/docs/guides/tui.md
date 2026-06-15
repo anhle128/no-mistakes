@@ -91,6 +91,10 @@ When a step pauses for approval, the findings panel shows structured results:
 
   > [x] E  src/handler.go:42
           Missing nil check before dereferencing resp.Body
+          Context: The retry helper can return a nil response with a non-nil error,
+          and this path dereferences resp.Body before checking that case.
+          Solution: guard resp before reading the body and keep the existing
+          retry behavior covered by the handler test.
          > keep the existing retry behavior
     [x] I  [user]
           Also update the CLI help text for this new flag
@@ -105,6 +109,8 @@ When a step pauses for approval, the findings panel shows structured results:
 - Checkboxes: `[x]` (selected, green), `[ ]` (deselected, dim)
 - Blue `>` marks the focused finding
 - User-added findings are marked with `[user]`
+- `Context:` explains why the finding matters and the relevant project behavior
+- `Solution:` explains what the fix agent is expected to change before you press `f`
 - Per-finding notes render inline as `> ...` and are sent with the next fix request
 - Bottom hint shows `↑ N above / ↓ N more below (j/k)` when scrolling, or `(j/k)` whenever there are multiple findings
 

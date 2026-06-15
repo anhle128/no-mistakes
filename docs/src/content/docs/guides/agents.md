@@ -115,9 +115,9 @@ no-mistakes axi abort
 When an agent starts a new run, `--intent` is required and should describe what the user wanted to accomplish, not what files changed.
 Agents should prefer a few complete sentences over a terse summary, capturing user decisions, tradeoffs, constraints, ruled-out approaches, and explicit requests that would not be obvious from the diff alone.
 If the repo is on the default branch or has uncommitted changes, direct `axi run` returns a structured error with the command the agent should run instead of silently creating a branch or commit.
-Approval gates are exposed as `gate:` objects with finding IDs, severities, files, actions, descriptions, and help commands for `no-mistakes axi respond`.
+Approval gates are exposed as `gate:` objects with finding IDs, severities, files, actions, descriptions, detailed context, suggested fixes, and help commands for `no-mistakes axi respond`.
 An agent should resolve `action: auto-fix` findings on its own judgment, ignore `action: no-op` findings when approving, and stop on `action: ask-user` findings unless it is running with explicit `--yes` consent.
-When it stops for `ask-user`, it should relay each finding's ID, file, and full description to the user before choosing `approve`, `fix`, or `skip`.
+When it stops for `ask-user`, it should relay each finding's ID, file, full description, context, and suggested fix to the user before choosing `approve`, `fix`, or `skip`.
 Resolving a finding always means responding with `no-mistakes axi respond --action fix`, which has the pipeline apply the fix and re-review it - the agent must not edit the code itself while a run is active.
 Successful outputs can be `outcome: passed` for a completed run or `outcome: checks-passed` when CI has passed and the daemon is still monitoring the unmerged PR for humans, and may include a `fixes` table when the pipeline applied fixes.
 

@@ -26,6 +26,8 @@ type Finding struct {
 	File             string `json:"file,omitempty"`
 	Line             int    `json:"line,omitempty"`
 	Description      string `json:"description"`
+	Context          string `json:"context,omitempty"`
+	SuggestedFix     string `json:"suggested_fix,omitempty"`
 	Action           string `json:"action"`
 	Source           string `json:"source,omitempty"`
 	UserInstructions string `json:"user_instructions,omitempty"`
@@ -46,6 +48,8 @@ type findingWire struct {
 	File                string `json:"file,omitempty"`
 	Line                int    `json:"line,omitempty"`
 	Description         string `json:"description"`
+	Context             string `json:"context,omitempty"`
+	SuggestedFix        string `json:"suggested_fix,omitempty"`
 	Action              string `json:"action"`
 	Source              string `json:"source,omitempty"`
 	UserInstructions    string `json:"user_instructions,omitempty"`
@@ -300,6 +304,8 @@ func (f *Finding) UnmarshalJSON(data []byte) error {
 	f.File = wire.File
 	f.Line = wire.Line
 	f.Description = wire.Description
+	f.Context = wire.Context
+	f.SuggestedFix = wire.SuggestedFix
 	f.Action = wire.Action
 	f.Source = wire.Source
 	f.UserInstructions = wire.UserInstructions

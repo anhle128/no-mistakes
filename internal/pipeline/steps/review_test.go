@@ -77,11 +77,29 @@ func TestReviewStep_FixMode(t *testing.T) {
 	if !strings.Contains(ag.calls[0].Prompt, "smallest correct root-cause fix") {
 		t.Error("expected review fix prompt to prefer root-cause fixes over bandaids")
 	}
+	if !strings.Contains(ag.calls[0].Prompt, "Find the root cause and fix it") {
+		t.Error("expected review fix prompt to explicitly require finding and fixing the root cause")
+	}
+	if !strings.Contains(ag.calls[0].Prompt, "work-around solution") {
+		t.Error("expected review fix prompt to reject work-around solutions")
+	}
 	if !strings.Contains(ag.calls[0].Prompt, "deeper design, abstraction, validation, ownership, or test-coverage flaw") {
 		t.Error("expected review fix prompt to require root-cause diagnosis before editing")
 	}
 	if !strings.Contains(ag.calls[0].Prompt, "leave the same class of bug likely elsewhere") {
 		t.Error("expected review fix prompt to avoid narrow fixes that leave systemic bugs")
+	}
+	if !strings.Contains(ag.calls[0].Prompt, "durable, maintainable fixes") {
+		t.Error("expected review fix prompt to optimize for long-term maintainability")
+	}
+	if !strings.Contains(ag.calls[0].Prompt, "scalable") {
+		t.Error("expected review fix prompt to explicitly mention scalable fixes")
+	}
+	if !strings.Contains(ag.calls[0].Prompt, "shared validation, invariants, ownership boundaries, or existing abstractions") {
+		t.Error("expected review fix prompt to prefer scalable shared fixes")
+	}
+	if !strings.Contains(ag.calls[0].Prompt, "tactical patches") {
+		t.Error("expected review fix prompt to avoid tactical patches")
 	}
 	if len(ag.calls[0].JSONSchema) == 0 {
 		t.Error("expected fix call to request structured JSON output")
@@ -135,6 +153,42 @@ func TestReviewStep_FixMode_RequiresPreviousFindings(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "previous review findings") {
 		t.Fatalf("error = %q, want to mention previous review findings", err)
+	}
+}
+
+func TestReviewStep_PromptRequiresDetailedContextAndSuggestedFix(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			for _, want := range []string{
+				"description as a short issue title",
+				"context field",
+				"suggested_fix field",
+				"not know this project",
+				"what should change before the user presses fix",
+			} {
+				if !strings.Contains(opts.Prompt, want) {
+					t.Fatalf("expected review prompt to mention %q, got:\n%s", want, opts.Prompt)
+				}
+			}
+			schema := string(opts.JSONSchema)
+			for _, want := range []string{`"context"`, `"suggested_fix"`, `"required": ["severity", "description", "context", "suggested_fix", "action"]`} {
+				if !strings.Contains(schema, want) {
+					t.Fatalf("expected review schema to include %q, got:\n%s", want, schema)
+				}
+			}
+			findingsJSON, _ := json.Marshal(Findings{RiskLevel: "low", RiskRationale: "Clean."})
+			return &agent.Result{Output: findingsJSON}, nil
+		},
+	}
+
+	sctx := newTestContext(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	step := &ReviewStep{}
+	if _, err := step.Execute(sctx); err != nil {
+		t.Fatal(err)
 	}
 }
 

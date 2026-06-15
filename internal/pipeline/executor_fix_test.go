@@ -30,6 +30,7 @@ func TestExecutor_FixEmitsDiffAndFixReviewStatus(t *testing.T) {
 				// Simulate agent making changes in the worktree
 				writeTestFile(t, workDir, "fix.txt", "agent fix\n")
 				execGit(t, workDir, "add", "fix.txt")
+				return &StepOutcome{NeedsApproval: true, Findings: `{"items":[]}`, FixSummary: "write applied fix summary"}, nil
 			}
 			return &StepOutcome{NeedsApproval: true, Findings: `{"items":[]}`}, nil
 		},
@@ -67,6 +68,9 @@ func TestExecutor_FixEmitsDiffAndFixReviewStatus(t *testing.T) {
 		t.Error("expected diff in fix_review event")
 	} else if !strings.Contains(*fixEvent.Diff, "fix.txt") {
 		t.Errorf("expected diff to mention fix.txt, got: %s", *fixEvent.Diff)
+	}
+	if len(fixEvent.FixSummaries) != 1 || fixEvent.FixSummaries[0] != "write applied fix summary" {
+		t.Fatalf("expected fix summary in fix_review event, got %v", fixEvent.FixSummaries)
 	}
 
 	// Approve to end

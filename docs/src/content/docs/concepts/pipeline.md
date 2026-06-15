@@ -58,7 +58,7 @@ The pipeline is opinionated so that "passed the gate" has a stable meaning:
 Every step can:
 
 - **Complete** cleanly and advance the pipeline.
-- **Return findings** with severity (`error`, `warning`, `info`) and an action (`auto-fix`, `ask-user`, `no-op`).
+- **Return findings** with severity (`error`, `warning`, `info`), enough context to understand the issue, a suggested fix when available, and an action (`auto-fix`, `ask-user`, `no-op`).
 - **Trigger auto-fix** if the step's `auto_fix` limit is above 0, the step result is auto-fixable, and any finding is `auto-fix`-eligible. Document and empty-command lint can instead apply safe fixes during their initial pass and report only unresolved findings.
 - **Pause for approval** if blocking findings remain after auto-fix, or if any finding is `ask-user`.
 - **Skip** when there's nothing to do (e.g., no diff, unsupported host).

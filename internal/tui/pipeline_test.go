@@ -406,6 +406,23 @@ func TestModel_ApplyEvent_StepCompleted_StoresFixedFindings(t *testing.T) {
 	}
 }
 
+func TestModel_ApplyEvent_StepCompleted_StoresFixSummaries(t *testing.T) {
+	run := testRun()
+	m := NewModel("/tmp/sock", nil, run)
+
+	m.applyEvent(ipc.Event{
+		Type:         ipc.EventStepCompleted,
+		RunID:        run.ID,
+		StepName:     ptr(types.StepReview),
+		Status:       ptr(string(types.StepStatusFixReview)),
+		FixSummaries: []string{"remove unsafe fallback"},
+	})
+
+	if len(m.steps[0].FixSummaries) != 1 || m.steps[0].FixSummaries[0] != "remove unsafe fallback" {
+		t.Fatalf("expected fix summary to be stored, got %v", m.steps[0].FixSummaries)
+	}
+}
+
 func TestModel_ApplyEvent_StepCompleted_FailedStoresError(t *testing.T) {
 	run := testRun()
 	m := NewModel("/tmp/sock", nil, run)

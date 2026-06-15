@@ -570,6 +570,9 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 		event.ReportedFindings = &reported
 		event.FixedFindings = &fixed
 	}
+	if summaries := e.fixSummariesForStep(run.ID, stepName); len(summaries) > 0 {
+		event.FixSummaries = summaries
+	}
 	if errMsg != "" {
 		event.Error = &errMsg
 	}
@@ -617,6 +620,24 @@ func (e *Executor) findingStatsForStep(runID string, stepName types.StepName) db
 		return stats
 	}
 	return db.StepStats{StepName: stepName}
+}
+
+func (e *Executor) fixSummariesForStep(runID string, stepName types.StepName) []string {
+	steps, err := e.db.GetStepsByRun(runID)
+	if err != nil {
+		return nil
+	}
+	for _, step := range steps {
+		if step.StepName != stepName {
+			continue
+		}
+		summaries, err := e.db.StepFixSummaries(step.ID)
+		if err != nil {
+			return nil
+		}
+		return summaries
+	}
+	return nil
 }
 
 func shouldTrackStepTelemetry(eventType ipc.EventType, status string) bool {

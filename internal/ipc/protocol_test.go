@@ -287,6 +287,28 @@ func TestStepResultInfoRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEventStepCompletedRoundTripIncludesFixSummaries(t *testing.T) {
+	event := Event{
+		Type:         EventStepCompleted,
+		RunID:        "run001",
+		RepoID:       "repo001",
+		StepName:     ptrStepName(types.StepReview),
+		Status:       ptrStr(string(types.StepStatusFixReview)),
+		FixSummaries: []string{"remove unsafe fallback"},
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Event
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.FixSummaries) != 1 || got.FixSummaries[0] != "remove unsafe fallback" {
+		t.Fatalf("fix_summaries = %v, want [remove unsafe fallback]", got.FixSummaries)
+	}
+}
+
 func TestEventTypes(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -27,6 +27,8 @@ var findingsSchema = json.RawMessage(`{
 					"file": {"type": "string"},
 					"line": {"type": "integer"},
 					"description": {"type": "string"},
+					"context": {"type": "string"},
+					"suggested_fix": {"type": "string"},
 					"action": {"type": "string", "enum": ["no-op", "auto-fix", "ask-user"]}
 				},
 				"required": ["severity", "description", "action"]
@@ -57,6 +59,8 @@ var testFindingsSchema = json.RawMessage(`{
 					"file": {"type": "string"},
 					"line": {"type": "integer"},
 					"description": {"type": "string"},
+					"context": {"type": "string"},
+					"suggested_fix": {"type": "string"},
 					"action": {"type": "string", "enum": ["no-op", "auto-fix", "ask-user"]}
 				},
 				"required": ["severity", "description", "action"]
@@ -103,9 +107,11 @@ var reviewFindingsSchema = json.RawMessage(`{
 					"file": {"type": "string"},
 					"line": {"type": "integer"},
 					"description": {"type": "string"},
+					"context": {"type": "string"},
+					"suggested_fix": {"type": "string"},
 					"action": {"type": "string", "enum": ["no-op", "auto-fix", "ask-user"]}
 				},
-				"required": ["severity", "description", "action"]
+				"required": ["severity", "description", "context", "suggested_fix", "action"]
 			}
 		},
 		"tested": {

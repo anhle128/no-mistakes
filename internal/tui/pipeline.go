@@ -222,10 +222,28 @@ func renderActionBar(steps []ipc.StepResultInfo, showSelectionActions bool, allo
 	}
 	b.WriteString(promptStyle.Render(prompt))
 	b.WriteString("\n")
+	if step.Status == types.StepStatusFixReview {
+		if summary := latestFixSummary(step.FixSummaries); summary != "" {
+			fixStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiGreen))
+			b.WriteString(fixStyle.Render("Applied fix: " + summary))
+			b.WriteString("\n")
+		}
+	}
 	// Hide selection actions in diff mode since toggle/A/N keys don't work there.
 	effectiveSelection := showSelectionActions && !showDiff
 	b.WriteString(renderApprovalActions(effectiveSelection, allowFix, showDiff, selectedCount, totalCount, confirmAbort, hasDiff))
 	return b.String()
+}
+
+func latestFixSummary(summaries []string) string {
+	if len(summaries) == 0 {
+		return ""
+	}
+	summary := strings.Join(strings.Fields(summaries[len(summaries)-1]), " ")
+	if summary == "" {
+		return "fix applied (no summary recorded)"
+	}
+	return summary
 }
 
 func renderApprovalActions(showSelectionActions bool, allowFix bool, showDiff bool, selectedCount int, totalCount int, confirmAbort bool, hasDiff bool) string {

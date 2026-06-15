@@ -26,11 +26,13 @@ type stepRow struct {
 }
 
 type findingRow struct {
-	ID          string `toon:"id"`
-	Severity    string `toon:"severity"`
-	File        string `toon:"file"`
-	Action      string `toon:"action"`
-	Description string `toon:"description"`
+	ID           string `toon:"id"`
+	Severity     string `toon:"severity"`
+	File         string `toon:"file"`
+	Action       string `toon:"action"`
+	Description  string `toon:"description"`
+	Context      string `toon:"context"`
+	SuggestedFix string `toon:"suggested_fix"`
 }
 
 type runRow struct {
@@ -256,11 +258,13 @@ func gateFields(gate stepView) []toon.Field {
 	rows := make([]findingRow, 0, len(parsed.Items))
 	for _, f := range parsed.Items {
 		rows = append(rows, findingRow{
-			ID:          f.ID,
-			Severity:    f.Severity,
-			File:        f.File,
-			Action:      f.Action,
-			Description: truncate(f.Description, maxFindingDesc),
+			ID:           f.ID,
+			Severity:     f.Severity,
+			File:         f.File,
+			Action:       f.Action,
+			Description:  truncate(f.Description, maxFindingDesc),
+			Context:      truncate(f.Context, maxFindingDesc),
+			SuggestedFix: truncate(f.SuggestedFix, maxFindingDesc),
 		})
 	}
 	gfields = append(gfields, toon.Field{Key: "findings", Value: rows})

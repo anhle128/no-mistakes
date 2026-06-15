@@ -61,6 +61,9 @@ func (m *Model) applyEvent(event ipc.Event) {
 		if event.StepName != nil && event.ReportedFindings != nil {
 			m.setStepReportedFindings(*event.StepName, *event.ReportedFindings)
 		}
+		if event.StepName != nil && event.FixSummaries != nil {
+			m.setStepFixSummaries(*event.StepName, event.FixSummaries)
+		}
 		// Persist duration so the step continues to display its elapsed time.
 		// Prefer the event's execution-only duration; fall back to local timing.
 		// For "fixing" status, clear the persisted duration and back-date the
@@ -195,6 +198,15 @@ func (m *Model) setStepReportedFindings(name types.StepName, reportedFindings in
 	for i := range m.steps {
 		if m.steps[i].StepName == name {
 			m.steps[i].ReportedFindings = reportedFindings
+			return
+		}
+	}
+}
+
+func (m *Model) setStepFixSummaries(name types.StepName, summaries []string) {
+	for i := range m.steps {
+		if m.steps[i].StepName == name {
+			m.steps[i].FixSummaries = append([]string(nil), summaries...)
 			return
 		}
 	}

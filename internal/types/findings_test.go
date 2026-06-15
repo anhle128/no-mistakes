@@ -172,6 +172,35 @@ func TestParseFindingsJSON_Action(t *testing.T) {
 	}
 }
 
+func TestParseFindingsJSON_DetailedReviewFields(t *testing.T) {
+	raw := `{"findings":[{"severity":"warning","description":"approval lifetime expands","context":"The approval state now persists past the current prompt.submit turn, so later tool calls can inherit a permission the user only granted for one interaction.","suggested_fix":"Keep approve_all scoped to the current prompt.submit call, or update the UI/protocol copy before persisting it longer.","action":"ask-user"}],"risk_level":"high","risk_rationale":"Permission scope changed."}`
+	f, err := ParseFindingsJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Items) != 1 {
+		t.Fatalf("Items count = %d, want 1", len(f.Items))
+	}
+	item := f.Items[0]
+	if item.Context == "" || !strings.Contains(item.Context, "later tool calls") {
+		t.Fatalf("Context was not preserved: %+v", item)
+	}
+	if item.SuggestedFix == "" || !strings.Contains(item.SuggestedFix, "Keep approve_all scoped") {
+		t.Fatalf("SuggestedFix was not preserved: %+v", item)
+	}
+
+	encoded, err := MarshalFindingsJSON(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(encoded, `"context"`) {
+		t.Fatalf("expected context to be encoded, got %s", encoded)
+	}
+	if !strings.Contains(encoded, `"suggested_fix"`) {
+		t.Fatalf("expected suggested_fix to be encoded, got %s", encoded)
+	}
+}
+
 func TestParseFindingsJSON_RequiresHumanReviewCompatibility(t *testing.T) {
 	raw := `{"findings":[{"severity":"warning","description":"design choice","requires_human_review":true},{"severity":"error","description":"bug","requires_human_review":false}]}`
 	f, err := ParseFindingsJSON(raw)

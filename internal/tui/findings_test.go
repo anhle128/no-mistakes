@@ -145,6 +145,27 @@ func TestRenderFindings_RiskOverridesSummary(t *testing.T) {
 	}
 }
 
+func TestRenderFindings_DetailedContextAndSuggestedFix(t *testing.T) {
+	raw := `{"findings":[{"id":"review-1","severity":"error","file":"apps/gateway/src/agent/query-engine-runner.ts","line":191,"description":"approval lifetime expands beyond the current turn","context":"The runner now persists approve_all in accumulatedPermissionRules. A user choosing Approve all for one prompt.submit can silently grant the same tool on later prompt.submit calls in the same session.","suggested_fix":"Keep approve_all turn-scoped unless the UI/protocol text explicitly asks for session-level approval, then add tests around the lifetime boundary.","action":"ask-user"}],"risk_level":"high","risk_rationale":"Permission scope changes need explicit review."}`
+	got := renderFindings(raw, 96)
+	plain := stripANSI(got)
+
+	for _, want := range []string{
+		"approval lifetime expands beyond the current turn",
+		"Context:",
+		"accumulatedPermissionRules",
+		"later",
+		"prompt.submit calls",
+		"Solution:",
+		"Keep approve_all turn-scoped",
+		"add tests around the lifetime boundary",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected rendered findings to include %q, got:\n%s", want, plain)
+		}
+	}
+}
+
 func TestRenderFindings_SelectionFooter(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI)
 	raw := `{"findings":[
