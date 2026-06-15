@@ -32,6 +32,35 @@
       },
       "registered_skills": [],
       "installed_at": "2026-06-15T10:54:49.307335+00:00"
+    },
+    "red-team": {
+      "version": "1.1.1",
+      "source": "local",
+      "manifest_hash": "sha256:307ff7d3e7bb4f4c04de112933ff9e5d18db065ad0c1b8b77311efdb1e830387",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "agy": [
+          "speckit.red-team.run",
+          "speckit.red-team.gate",
+          "speckit.red-team.draft",
+          "speckit.red-team.apply"
+        ],
+        "claude": [
+          "speckit.red-team.run",
+          "speckit.red-team.gate",
+          "speckit.red-team.draft",
+          "speckit.red-team.apply"
+        ],
+        "codex": [
+          "speckit.red-team.run",
+          "speckit.red-team.gate",
+          "speckit.red-team.draft",
+          "speckit.red-team.apply"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-06-15T13:22:50.049855+00:00"
     }
   }
 }
