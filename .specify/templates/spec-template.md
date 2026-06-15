@@ -72,8 +72,11 @@
   Fill them out with the right edge cases.
 -->
 
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+- What happens when the gate run is interrupted, canceled, or superseded by a newer push?
+- How does the system handle missing credentials, missing agent/provider binaries, or non-interactive Git failures?
+- What approval path is used for findings that require human judgment?
+- What evidence is produced when user intent is available but automated validation is incomplete?
+- How are cross-platform path, shell, daemon, and service-manager differences handled?
 
 ## Requirements *(mandatory)*
 
@@ -84,21 +87,32 @@
 
 ### Functional Requirements
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]  
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-001**: System MUST [specific capability tied to the no-mistakes gate]
+- **FR-002**: System MUST preserve explicit `git push no-mistakes` gate semantics and MUST NOT alter normal `origin` behavior unless the feature explicitly concerns Git remote setup
+- **FR-003**: Users MUST be able to [key TUI, AXI, CLI, or git workflow interaction]
+- **FR-004**: System MUST keep intentional writes inside the disposable worktree or configured evidence directory
+- **FR-005**: System MUST provide actionable findings, logs, or recovery messages for failure paths
+- **FR-006**: System MUST update docs, config reference, or generated skill content when user-visible behavior changes
 
 *Example of marking unclear requirements:*
 
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+- **FR-007**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
+- **FR-008**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
 ### Key Entities *(include if feature involves data)*
 
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+- **Run**: [Branch-scoped pipeline execution, status, steps, findings, approvals, and fix rounds]
+- **Step Result**: [Per-step status, findings, tested evidence, artifacts, duration, and logs]
+- **Approval Gate**: [Finding IDs, actions, user instructions, added findings, and selected resolution]
+- **Agent Invocation**: [Prompt, worktree CWD, environment, structured schema, output, and retry behavior]
+
+## Constitution Alignment *(mandatory)*
+
+- **Gate Semantics**: [How this feature preserves the meaning of a passed gate and normal `origin` behavior]
+- **Isolation/User Control**: [Where writes happen, which paths require approval, and how destructive or credential-gated actions pause]
+- **Evidence Plan**: [Targeted tests, `go test -race ./...`, `make lint`, e2e/docs validation, and reviewer-visible artifacts]
+- **Agent/Interface Contracts**: [Structured output, transcript intent, AXI/TUI labels, and supported-agent impact]
+- **Docs/Generated Artifacts**: [README/docs/config/generated skill updates or N/A with rationale]
 
 ## Success Criteria *(mandatory)*
 
