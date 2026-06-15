@@ -29,3 +29,13 @@ Why it went wrong: I reused the Makefile target instead of making the helper scr
 Rule: Local reinstall helpers should be idempotent. Build and copy the binary directly, tolerate "daemon already stopped" or stale PID failures during stop, then start the daemon and verify `command -v` plus `--version`.
 
 Relevant context: `scripts/install-local-path.sh`, `Makefile`.
+
+## 2026-06-15 - Inspect existing tests before asking test-scope questions
+
+What happened: During the review-file handoff design grill, I asked the user what minimum tests should cover even though the repo already has existing review/TUI/AXI tests that can answer the current baseline.
+
+Why it went wrong: I stayed in interview mode for a question that was partly discoverable from source. The useful question was not "what tests should exist?" but "do we accept adding tests for the new file-based behavior that current tests do not cover?"
+
+Rule: In source-backed grill-me sessions, inspect current tests before asking about test coverage. Only ask the user about product-level acceptance or risk appetite after separating existing coverage from new behavior gaps.
+
+Relevant context: `internal/pipeline/steps/review_test.go`, `internal/tui/findings_test.go`, `internal/tui/action_bar_test.go`, `internal/cli/axi_drive_test.go`.
