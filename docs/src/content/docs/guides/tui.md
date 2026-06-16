@@ -50,7 +50,7 @@ Shows the branch name and run status in the header, followed by each step:
   │
   ✓ Rebase            320ms
   │
-  ⏸ Review     - awaiting approval       2/3 fixed
+  ⏸ Review     - Review preview complete       2/3 fixed
   │
   ○ Test
   │
@@ -114,6 +114,16 @@ When a step pauses for approval, the findings panel shows structured results:
 - Per-finding notes render inline as `> ...` and are sent with the next fix request
 - Bottom hint shows `↑ N above / ↓ N more below (j/k)` when scrolling, or `(j/k)` whenever there are multiple findings
 
+### Review file handoff
+
+When the Review step pauses, no-mistakes writes a Markdown review handoff file and shows its repo-relative path instead of the inline findings list. The file is placed next to a single eligible changed anchor such as `plan.md` or `tasks.md` when possible, otherwise under `.no-mistakes/issues/<branch>/review-issues-<run>.md`.
+
+Each finding has a fenced `no-mistakes-response` block. Set `action` to `accept`, `fix`, or `skip`; for `fix`, add the requested guidance in `solution`. Press `p` to process the file. The daemon validates the front matter, review hash, response coverage, and size bounds before the gate advances. If validation fails, the gate stays open and the compact error remains visible until you fix the file.
+
+The file is overwritten with the latest review cycle. When a fix cycle clears all review findings, the final file keeps the prior decisions and adds `No remaining review findings.` so the PR branch carries an audit record.
+
+TUI yolo mode does not answer a review-file gate automatically. Headless AXI automation can still use the legacy `approve`, `fix`, and `skip` responses; no-mistakes mirrors those executed decisions into the same file before continuing.
+
 ### Diff panel
 
 After a fix cycle, press `d` to toggle the diff view:
@@ -163,6 +173,13 @@ When yolo mode is on, the footer changes from `y yolo` to `y end yolo`.
 | `x` | Abort - press twice to confirm (first press shows warning) |
 | `o` | Open PR URL in browser (when available) |
 
+### Review file actions
+
+| Key | Action |
+|---|---|
+| `p` | Process the current review handoff file |
+| `c` | Cancel the run |
+
 ### Selection
 
 | Key | Action |
@@ -202,6 +219,8 @@ Review awaiting action:
 The `f fix (3/5)` label shows how many findings are selected out of the total.
 
 Press `e` to add or edit extra guidance for the current finding. Press `+` to add your own finding to the list. User-authored findings start selected by default and can be removed with `D`.
+
+For review-file gates, the action bar is reduced to `p process` and `c cancel`; edit the handoff file itself to choose `accept`, `fix`, or `skip`, or press `c` to cancel the run.
 
 Press `y` to toggle yolo mode when you want paused approval gates to resolve automatically.
 Yolo fixes gates with `auto-fix` and `ask-user` findings by selecting every finding, then approves the resulting fix-review gate.

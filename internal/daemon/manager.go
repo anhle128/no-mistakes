@@ -484,6 +484,49 @@ func (m *RunManager) HandleRespondWithOverrides(runID string, step types.StepNam
 	return exec.RespondWithOverrides(step, action, findingIDs, instructions, addedFindings)
 }
 
+// HandleProcessReview validates and processes the current review handoff file
+// for a run blocked on review approval.
+func (m *RunManager) HandleProcessReview(runID string, step types.StepName) (pipeline.ReviewGateInfo, error) {
+	m.mu.Lock()
+	exec, ok := m.executors[runID]
+	m.mu.Unlock()
+
+	if !ok {
+		return pipeline.ReviewGateInfo{}, fmt.Errorf("no active executor for run %s", runID)
+	}
+	info, _ := exec.ReviewGateInfo(step)
+	if err := exec.ProcessReview(step); err != nil {
+		return info, err
+	}
+	return info, nil
+}
+
+func (m *RunManager) populateReviewGateInfo(info *ipc.RunInfo) {
+	if info == nil {
+		return
+	}
+	m.mu.Lock()
+	exec := m.executors[info.ID]
+	m.mu.Unlock()
+	if exec == nil {
+		return
+	}
+	for i := range info.Steps {
+		gate, ok := exec.ReviewGateInfo(info.Steps[i].StepName)
+		if !ok {
+			continue
+		}
+		if gate.ReviewFilePath != "" {
+			path := gate.ReviewFilePath
+			info.Steps[i].ReviewFilePath = &path
+		}
+		if gate.ReviewValidationError != "" {
+			validation := gate.ReviewValidationError
+			info.Steps[i].ReviewValidationError = &validation
+		}
+	}
+}
+
 // Shutdown cancels all active runs. Called during daemon shutdown to prevent
 // orphaned goroutines from continuing agent calls and git operations.
 func (m *RunManager) Shutdown() {

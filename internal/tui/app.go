@@ -19,17 +19,19 @@ type Model struct {
 	subscriptionID uint64
 
 	// State.
-	run                 *ipc.RunInfo
-	steps               []ipc.StepResultInfo
-	stepFindings        map[types.StepName]string            // step name → raw findings JSON
-	stepDiffs           map[types.StepName]string            // step name → raw unified diff
-	findingSelections   map[types.StepName]map[string]bool   // step name → finding ID → selected
-	findingCursor       map[types.StepName]int               // step name → current finding cursor
-	findingInstructions map[types.StepName]map[string]string // step name → finding ID → user note
-	addedFindings       map[types.StepName][]types.Finding   // user-authored findings per step
-	editor              *editorState                         // active modal editor (nil when none)
-	logs                []string
-	logPartial          string // buffered partial line (no trailing newline yet)
+	run                    *ipc.RunInfo
+	steps                  []ipc.StepResultInfo
+	stepFindings           map[types.StepName]string            // step name → raw findings JSON
+	stepDiffs              map[types.StepName]string            // step name → raw unified diff
+	reviewFilePaths        map[types.StepName]string            // step name → active review handoff path
+	reviewValidationErrors map[types.StepName]string            // step name → current review file validation error
+	findingSelections      map[types.StepName]map[string]bool   // step name → finding ID → selected
+	findingCursor          map[types.StepName]int               // step name → current finding cursor
+	findingInstructions    map[types.StepName]map[string]string // step name → finding ID → user note
+	addedFindings          map[types.StepName][]types.Finding   // user-authored findings per step
+	editor                 *editorState                         // active modal editor (nil when none)
+	logs                   []string
+	logPartial             string // buffered partial line (no trailing newline yet)
 
 	// Timing.
 	stepStartTimes map[types.StepName]time.Time // when each step started running
@@ -62,23 +64,25 @@ func NewModel(socketPath string, client *ipc.Client, run *ipc.RunInfo) Model {
 	steps := normalizePipelineSteps(run.ID, run.Status, run.Steps)
 	run.Steps = steps
 	m := Model{
-		socketPath:          socketPath,
-		client:              client,
-		runID:               run.ID,
-		subscriptionID:      1,
-		run:                 run,
-		done:                run.Status == types.RunCompleted || run.Status == types.RunFailed || run.Status == types.RunCancelled,
-		steps:               steps,
-		stepFindings:        make(map[types.StepName]string),
-		stepDiffs:           make(map[types.StepName]string),
-		findingSelections:   make(map[types.StepName]map[string]bool),
-		findingCursor:       make(map[types.StepName]int),
-		findingInstructions: make(map[types.StepName]map[string]string),
-		addedFindings:       make(map[types.StepName][]types.Finding),
-		stepStartTimes:      make(map[types.StepName]time.Time),
-		syntheticSteps:      syntheticSteps,
-		yoloApproved:        make(map[types.StepName]bool),
-		yoloFixed:           make(map[types.StepName]bool),
+		socketPath:             socketPath,
+		client:                 client,
+		runID:                  run.ID,
+		subscriptionID:         1,
+		run:                    run,
+		done:                   run.Status == types.RunCompleted || run.Status == types.RunFailed || run.Status == types.RunCancelled,
+		steps:                  steps,
+		stepFindings:           make(map[types.StepName]string),
+		stepDiffs:              make(map[types.StepName]string),
+		reviewFilePaths:        make(map[types.StepName]string),
+		reviewValidationErrors: make(map[types.StepName]string),
+		findingSelections:      make(map[types.StepName]map[string]bool),
+		findingCursor:          make(map[types.StepName]int),
+		findingInstructions:    make(map[types.StepName]map[string]string),
+		addedFindings:          make(map[types.StepName][]types.Finding),
+		stepStartTimes:         make(map[types.StepName]time.Time),
+		syntheticSteps:         syntheticSteps,
+		yoloApproved:           make(map[types.StepName]bool),
+		yoloFixed:              make(map[types.StepName]bool),
 	}
 	// Populate findings and start times from initial step data (for re-attach scenarios).
 	for _, s := range steps {
@@ -87,6 +91,12 @@ func NewModel(socketPath string, client *ipc.Client, run *ipc.RunInfo) Model {
 			if s.Status == types.StepStatusAwaitingApproval || s.Status == types.StepStatusFixReview {
 				m.resetFindingSelection(s.StepName)
 			}
+		}
+		if s.ReviewFilePath != nil && *s.ReviewFilePath != "" {
+			m.reviewFilePaths[s.StepName] = *s.ReviewFilePath
+		}
+		if s.ReviewValidationError != nil && *s.ReviewValidationError != "" {
+			m.reviewValidationErrors[s.StepName] = *s.ReviewValidationError
 		}
 		// Seed start times from DB so elapsed time can be computed on re-attach.
 		if s.StartedAt != nil && s.DurationMS == nil {

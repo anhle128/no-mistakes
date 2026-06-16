@@ -265,36 +265,50 @@ func TestRunInfoRoundTrip(t *testing.T) {
 func TestStepResultInfoRoundTrip(t *testing.T) {
 	exitCode := 0
 	dur := int64(1234)
+	phase := "Review preview complete"
+	path := "review-issues-run001.md"
 	info := StepResultInfo{
-		ID:         "step001",
-		RunID:      "run001",
-		StepName:   types.StepTest,
-		StepOrder:  2,
-		Status:     types.StepStatusCompleted,
-		ExitCode:   &exitCode,
-		DurationMS: &dur,
+		ID:               "step001",
+		RunID:            "run001",
+		StepName:         types.StepReview,
+		StepOrder:        2,
+		Status:           types.StepStatusAwaitingApproval,
+		ExitCode:         &exitCode,
+		DurationMS:       &dur,
+		ReviewPhaseLabel: &phase,
+		ReviewFilePath:   &path,
 	}
 	data, _ := json.Marshal(info)
 	var got StepResultInfo
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.StepName != types.StepTest || got.StepOrder != 2 {
+	if got.StepName != types.StepReview || got.StepOrder != 2 {
 		t.Errorf("mismatch: got %+v", got)
 	}
 	if got.ExitCode == nil || *got.ExitCode != 0 {
 		t.Errorf("exit_code = %v, want 0", got.ExitCode)
 	}
+	if got.ReviewPhaseLabel == nil || *got.ReviewPhaseLabel != phase {
+		t.Errorf("review_phase_label = %v, want %q", got.ReviewPhaseLabel, phase)
+	}
+	if got.ReviewFilePath == nil || *got.ReviewFilePath != path {
+		t.Errorf("review_file_path = %v, want %q", got.ReviewFilePath, path)
+	}
 }
 
 func TestEventStepCompletedRoundTripIncludesFixSummaries(t *testing.T) {
+	phase := "Review fix result"
+	path := "review-issues-run001.md"
 	event := Event{
-		Type:         EventStepCompleted,
-		RunID:        "run001",
-		RepoID:       "repo001",
-		StepName:     ptrStepName(types.StepReview),
-		Status:       ptrStr(string(types.StepStatusFixReview)),
-		FixSummaries: []string{"remove unsafe fallback"},
+		Type:             EventStepCompleted,
+		RunID:            "run001",
+		RepoID:           "repo001",
+		StepName:         ptrStepName(types.StepReview),
+		Status:           ptrStr(string(types.StepStatusFixReview)),
+		FixSummaries:     []string{"remove unsafe fallback"},
+		ReviewPhaseLabel: &phase,
+		ReviewFilePath:   &path,
 	}
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -306,6 +320,12 @@ func TestEventStepCompletedRoundTripIncludesFixSummaries(t *testing.T) {
 	}
 	if len(got.FixSummaries) != 1 || got.FixSummaries[0] != "remove unsafe fallback" {
 		t.Fatalf("fix_summaries = %v, want [remove unsafe fallback]", got.FixSummaries)
+	}
+	if got.ReviewPhaseLabel == nil || *got.ReviewPhaseLabel != phase {
+		t.Fatalf("review_phase_label = %v, want %q", got.ReviewPhaseLabel, phase)
+	}
+	if got.ReviewFilePath == nil || *got.ReviewFilePath != path {
+		t.Fatalf("review_file_path = %v, want %q", got.ReviewFilePath, path)
 	}
 }
 

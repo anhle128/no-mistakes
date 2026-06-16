@@ -24,6 +24,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = false
 	}
 
+	if step := awaitingStep(m.steps); step != nil && m.isReviewFileGate(step.StepName) {
+		switch key {
+		case "p":
+			return m, m.processReviewCmd()
+		case "c":
+			return m, m.cancelRunCmd()
+		case "q", "ctrl+c", "?", "esc":
+			// Keep global navigation available while the review file gate is open.
+		default:
+			return m, nil
+		}
+	}
+
 	switch key {
 	case "q", "ctrl+c":
 		m.quitting = true

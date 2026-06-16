@@ -47,6 +47,9 @@ func (m Model) View() string {
 		hasDiff = ok && raw != ""
 	}
 	actionBar := renderActionBar(m.steps, showSelectionActions, allowFix, m.showDiff, selectedCount, totalCount, m.confirmAbort, hasDiff)
+	if step := awaitingStep(m.steps); step != nil && m.isReviewFileGate(step.StepName) {
+		actionBar = renderReviewFileActionBar(step.StepName)
+	}
 
 	footer := renderFooter(m.done, m.showHelp, m.confirmAbort, m.yoloMode, m.run, m.latestVersion, m.width)
 	contentBudget := -1
@@ -143,7 +146,13 @@ func (m Model) View() string {
 		if step := awaitingStep(m.steps); step != nil {
 			// Generic findings or diff for non-CI steps awaiting approval.
 			label := stepLabel(step.StepName)
-			if m.showDiff {
+			if m.isReviewFileGate(step.StepName) {
+				boxHeight := m.height
+				if contentBudget >= 0 {
+					boxHeight = contentBudget
+				}
+				appendExtraSection(renderReviewFileGateBox(label, m.reviewFilePath(step.StepName), m.reviewValidationError(step.StepName), m.stepFindings[step.StepName], rightWidth, boxHeight))
+			} else if m.showDiff {
 				if raw, ok := m.stepDiffs[step.StepName]; ok && raw != "" {
 					// Build finding context for diff view header.
 					findingCtx := ""
@@ -307,6 +316,67 @@ func renderFindingsBoxForHeight(raw string, width int, cursor int, selected map[
 		return ""
 	}
 	return renderBoxWithStyledTitle(styledTitle, rendered, boxWidth, scrollFooter)
+}
+
+func renderReviewFileGateBox(label, path, validation, raw string, width int, boxHeight int) string {
+	if path == "" || (boxHeight > 0 && boxHeight < 3) {
+		return ""
+	}
+	boxWidth := width
+	if boxWidth < 20 {
+		boxWidth = 80
+	}
+	contentWidth := boxWidth - 4
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ansiCyan))
+	title := titleStyle.Render(label + " File")
+	lines := []string{}
+	if trimmed, _ := cutText("File: "+path, contentWidth); trimmed != "" {
+		lines = append(lines, trimmed)
+	}
+	if summary := reviewFileFindingSummary(raw); summary != "" {
+		if trimmed, _ := cutText(summary, contentWidth); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	if validation != "" {
+		lines = append(lines, "")
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiRed))
+		if trimmed, _ := cutText("Validation: "+validation, contentWidth); trimmed != "" {
+			lines = append(lines, warnStyle.Render(trimmed))
+		}
+	}
+	if boxHeight > 0 {
+		maxLines := boxHeight - 2
+		if maxLines <= 0 {
+			return ""
+		}
+		if len(lines) > maxLines {
+			lines = lines[:maxLines]
+		}
+	}
+	return renderBoxWithStyledTitle(title, strings.Join(lines, "\n"), boxWidth, "")
+}
+
+func reviewFileFindingSummary(raw string) string {
+	f, err := parseFindings(raw)
+	if err != nil || f == nil {
+		return ""
+	}
+	counts := map[string]int{}
+	for _, item := range f.Items {
+		counts[item.Severity]++
+	}
+	parts := []string{fmt.Sprintf("Findings: %d", len(f.Items))}
+	for _, sev := range []string{"error", "warning", "info"} {
+		if c := counts[sev]; c > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", severityIcon(sev), c))
+		}
+	}
+	return strings.Join(parts, "  ")
 }
 
 func renderLogBox(logs []string, width int, logLines int, remainingBudget int) string {

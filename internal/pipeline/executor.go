@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -28,6 +30,7 @@ type approvalResponse struct {
 	findingIDs    []string
 	instructions  map[string]string
 	addedFindings []types.Finding
+	reviewActions map[string]string
 }
 
 // Executor runs pipeline steps sequentially and coordinates approval interactions.
@@ -45,6 +48,9 @@ type Executor struct {
 	approvalCh  chan approvalResponse // buffered channel for approval responses
 	waiting     bool                  // true when blocked on approval
 	waitingStep types.StepName        // which step is currently awaiting approval
+	reviewGate  *reviewGateState      // current review handoff file, when the review step uses file handoff
+
+	reviewAuditEntries []reviewhandoff.AuditEntry
 }
 
 // SetSkippedSteps configures steps that should be marked skipped without running.
@@ -95,6 +101,42 @@ func (e *Executor) RespondWithOverrides(step types.StepName, action types.Approv
 		e.mu.Unlock()
 		return fmt.Errorf("step mismatch: responding to %q but %q is awaiting approval", step, e.waitingStep)
 	}
+	var gate *reviewGateState
+	if step == types.StepReview && isLegacyReviewHandoffAction(action) && e.reviewGate != nil && e.reviewGate.AbsPath != "" {
+		gateCopy := *e.reviewGate
+		gate = &gateCopy
+	}
+	e.mu.Unlock()
+
+	var audit []reviewhandoff.AuditEntry
+	var reviewActions map[string]string
+	if gate != nil {
+		responses := reviewhandoff.AutomationResponses(action, gate.Live.Findings, findingIDs, instructions)
+		reviewActions = responseActions(responses)
+		mirrored, err := e.mirrorAutomationReviewGate(*gate, action, findingIDs, instructions, addedFindings)
+		if err != nil {
+			return err
+		}
+		audit = mirrored
+	}
+
+	e.mu.Lock()
+	if !e.waiting {
+		e.mu.Unlock()
+		return fmt.Errorf("no step awaiting approval")
+	}
+	if step != e.waitingStep {
+		e.mu.Unlock()
+		return fmt.Errorf("step mismatch: responding to %q but %q is awaiting approval", step, e.waitingStep)
+	}
+	if gate != nil {
+		if e.reviewGate == nil || e.reviewGate.RunID != gate.RunID || e.reviewGate.Step != gate.Step || e.reviewGate.AbsPath != gate.AbsPath {
+			e.mu.Unlock()
+			return fmt.Errorf("review handoff is no longer current")
+		}
+		e.reviewGate.ValidationError = ""
+		e.reviewAuditEntries = append(e.reviewAuditEntries, audit...)
+	}
 	e.waiting = false
 	e.mu.Unlock()
 
@@ -103,6 +145,7 @@ func (e *Executor) RespondWithOverrides(step types.StepName, action types.Approv
 		findingIDs:    findingIDs,
 		instructions:  instructions,
 		addedFindings: addedFindings,
+		reviewActions: reviewActions,
 	}
 	return nil
 }
@@ -112,6 +155,11 @@ func (e *Executor) RespondWithOverrides(step types.StepName, action types.Approv
 // If the context is cancelled with a cause (via context.WithCancelCause),
 // the cause message is preserved as the run's error in the DB.
 func (e *Executor) Execute(ctx context.Context, run *db.Run, repo *db.Repo, workDir string) error {
+	e.mu.Lock()
+	e.reviewGate = nil
+	e.reviewAuditEntries = nil
+	e.mu.Unlock()
+
 	// Mark run as running
 	if err := e.db.UpdateRunStatus(run.ID, types.RunRunning); err != nil {
 		return fmt.Errorf("update run status: %w", err)
@@ -344,6 +392,9 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			// Step completed without needing approval.
 			// Any remaining info-only or non-blocking findings
 			// are acceptable and don't block the pipeline.
+			if err := e.maybeWriteFinalReviewAudit(ctx, run, repo, workDir, stepName, sctx.Fixing, outcome.Findings, currentRoundID, roundNum); err != nil {
+				return false, fmt.Errorf("finalize review handoff: %w", err)
+			}
 			skipRemaining = outcome.SkipRemaining
 			stepSkipped = outcome.Skipped
 			break
@@ -363,6 +414,10 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			} else if d != "" {
 				diffText = d
 			}
+		}
+
+		if err := e.prepareReviewGate(ctx, run, repo, workDir, stepName, approvalStatus, outcome.Findings, currentRoundID, roundNum); err != nil {
+			return false, fmt.Errorf("prepare review handoff: %w", err)
 		}
 
 		// Mark executor as ready to receive approval before updating DB or
@@ -401,6 +456,14 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 		}
 		telemetry.Track("approval", approvalFields)
 
+		if stepName == types.StepReview && currentRoundID != "" && len(response.reviewActions) > 0 && response.action != types.ActionFix {
+			if annotated := annotateReviewActionsJSON(outcome.Findings, response.reviewActions); annotated != "" {
+				if dbErr := e.db.SetStepRoundUserFindings(currentRoundID, &annotated); dbErr != nil {
+					slog.Warn("failed to record review action map", "step", stepName, "round", roundNum, "error", dbErr)
+				}
+			}
+		}
+
 		switch response.action {
 		case types.ActionApprove:
 			// Approved - execution already frozen in executionMS, reset phaseStart
@@ -433,6 +496,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			sctx.Fixing = true
 			selectedFindings := filterFindingsJSON(outcome.Findings, response.findingIDs)
 			mergedFindings := mergeUserOverridesJSON(selectedFindings, response.instructions, response.addedFindings)
+			annotatedFindings := annotateReviewActionsJSON(mergedFindings, response.reviewActions)
 			sctx.PreviousFindings = mergedFindings
 			nextTrigger = "auto_fix"
 			if currentRoundID != "" {
@@ -442,8 +506,8 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 						slog.Warn("failed to record selected finding ids", "step", stepName, "round", roundNum, "error", dbErr)
 					}
 				}
-				if mergedFindings != "" && mergedFindings != selectedFindings {
-					merged := mergedFindings
+				if annotatedFindings != "" && annotatedFindings != selectedFindings {
+					merged := annotatedFindings
 					if dbErr := e.db.SetStepRoundUserFindings(currentRoundID, &merged); dbErr != nil {
 						slog.Warn("failed to record user findings", "step", stepName, "round", roundNum, "error", dbErr)
 					}
@@ -573,6 +637,9 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 	if summaries := e.fixSummariesForStep(run.ID, stepName); len(summaries) > 0 {
 		event.FixSummaries = summaries
 	}
+	if label := reviewhandoff.PhaseLabel(stepName, types.StepStatus(status)); label != "" {
+		event.ReviewPhaseLabel = &label
+	}
 	if errMsg != "" {
 		event.Error = &errMsg
 	}
@@ -581,6 +648,12 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 	}
 	if diff != "" {
 		event.Diff = &diff
+	}
+	if gate := e.currentReviewGateForEvent(run.ID, stepName, status); gate != nil {
+		event.ReviewFilePath = &gate.RelPath
+		if gate.ValidationError != "" {
+			event.ReviewValidationError = &gate.ValidationError
+		}
 	}
 	e.onEvent(event)
 	if !shouldTrackStepTelemetry(eventType, status) {
@@ -638,6 +711,35 @@ func (e *Executor) fixSummariesForStep(runID string, stepName types.StepName) []
 		return summaries
 	}
 	return nil
+}
+
+func annotateReviewActionsJSON(raw string, actions map[string]string) string {
+	if strings.TrimSpace(raw) == "" || len(actions) == 0 {
+		return raw
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return raw
+	}
+	clean := make(map[string]string, len(actions))
+	for id, action := range actions {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		switch action {
+		case reviewhandoff.ActionAccept, reviewhandoff.ActionSkip, reviewhandoff.ActionFix:
+			clean[id] = action
+		}
+	}
+	if len(clean) == 0 {
+		return raw
+	}
+	payload["review_actions"] = clean
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return raw
+	}
+	return string(encoded)
 }
 
 func shouldTrackStepTelemetry(eventType ipc.EventType, status string) bool {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -19,10 +21,12 @@ const maxFindingDesc = 600
 // Row types carry `toon` tags so the encoder renders a []row slice as a
 // tabular array (name[N]{cols}:) with one comma-delimited line per element.
 type stepRow struct {
-	Step       string `toon:"step"`
-	Status     string `toon:"status"`
-	Findings   int    `toon:"findings"`
-	DurationMS int64  `toon:"duration_ms"`
+	Step             string `toon:"step"`
+	Status           string `toon:"status"`
+	ReviewPhaseLabel string `toon:"review_phase_label"`
+	ReviewFilePath   string `toon:"review_file_path"`
+	Findings         int    `toon:"findings"`
+	DurationMS       int64  `toon:"duration_ms"`
 }
 
 type findingRow struct {
@@ -59,11 +63,13 @@ type fixRow struct {
 // stepView is a render-ready view of a single pipeline step, decoupled from
 // whether it came from the daemon (ipc) or the local database.
 type stepView struct {
-	Name         string
-	Status       string
-	DurationMS   int64
-	FindingsJSON string
-	FixSummaries []string
+	Name             string
+	Status           string
+	ReviewPhaseLabel string
+	ReviewFilePath   string
+	DurationMS       int64
+	FindingsJSON     string
+	FixSummaries     []string
 }
 
 // runView is a render-ready view of a pipeline run.
@@ -88,6 +94,12 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 	}
 	for _, s := range r.Steps {
 		sv := stepView{Name: string(s.StepName), Status: string(s.Status), FixSummaries: s.FixSummaries}
+		if s.ReviewPhaseLabel != nil {
+			sv.ReviewPhaseLabel = *s.ReviewPhaseLabel
+		}
+		if s.ReviewFilePath != nil {
+			sv.ReviewFilePath = *s.ReviewFilePath
+		}
 		if s.DurationMS != nil {
 			sv.DurationMS = *s.DurationMS
 		}
@@ -100,6 +112,10 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 }
 
 func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
+	return runViewFromDBWithPaths(r, steps, nil)
+}
+
+func runViewFromDBWithPaths(r *db.Run, steps []*db.StepResult, p *paths.Paths) runView {
 	rv := runView{
 		ID:      r.ID,
 		Branch:  r.Branch,
@@ -109,8 +125,15 @@ func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
+	reviewFilePath := reviewFilePathForRun(p, r)
 	for _, s := range steps {
 		sv := stepView{Name: string(s.StepName), Status: string(s.Status)}
+		if label := reviewhandoff.PhaseLabel(s.StepName, s.Status); label != "" {
+			sv.ReviewPhaseLabel = label
+		}
+		if s.StepName == types.StepReview && reviewFilePath != "" {
+			sv.ReviewFilePath = reviewFilePath
+		}
 		if s.DurationMS != nil {
 			sv.DurationMS = *s.DurationMS
 		}
@@ -120,6 +143,17 @@ func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 		rv.Steps = append(rv.Steps, sv)
 	}
 	return rv
+}
+
+func reviewFilePathForRun(p *paths.Paths, r *db.Run) string {
+	if p == nil || r == nil {
+		return ""
+	}
+	matches, err := reviewhandoff.FindExistingReviewFiles(p.WorktreeDir(r.RepoID, r.ID), r.ID)
+	if err != nil || len(matches) != 1 {
+		return ""
+	}
+	return matches[0]
 }
 
 // awaitingStep returns the step currently blocking on a human decision, if any.
@@ -235,7 +269,14 @@ func runObjectField(rv runView) toon.Field {
 
 	rows := make([]stepRow, 0, len(rv.Steps))
 	for _, s := range rv.Steps {
-		rows = append(rows, stepRow{Step: s.Name, Status: s.Status, Findings: s.findingCount(), DurationMS: s.DurationMS})
+		rows = append(rows, stepRow{
+			Step:             s.Name,
+			Status:           s.Status,
+			ReviewPhaseLabel: s.ReviewPhaseLabel,
+			ReviewFilePath:   s.ReviewFilePath,
+			Findings:         s.findingCount(),
+			DurationMS:       s.DurationMS,
+		})
 	}
 	fields = append(fields, toon.Field{Key: "steps", Value: rows})
 	return toon.Field{Key: "run", Value: toon.NewObject(fields...)}
@@ -248,6 +289,12 @@ func gateFields(gate stepView) []toon.Field {
 	gfields := []toon.Field{
 		{Key: "step", Value: gate.Name},
 		{Key: "status", Value: gate.Status},
+	}
+	if gate.ReviewPhaseLabel != "" {
+		gfields = append(gfields, toon.Field{Key: "review_phase_label", Value: gate.ReviewPhaseLabel})
+	}
+	if gate.ReviewFilePath != "" {
+		gfields = append(gfields, toon.Field{Key: "review_file_path", Value: gate.ReviewFilePath})
 	}
 	if parsed.Summary != "" {
 		gfields = append(gfields, toon.Field{Key: "summary", Value: parsed.Summary})

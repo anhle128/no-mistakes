@@ -89,6 +89,9 @@ func (m Model) maybeAutoApproveCmd() tea.Cmd {
 	if step == nil || m.yoloApproved[step.StepName] {
 		return nil
 	}
+	if m.isReviewFileGate(step.StepName) {
+		return nil
+	}
 	if step.Status != types.StepStatusFixReview && !m.yoloFixed[step.StepName] && m.stepHasActionableFindings(step.StepName) {
 		m.yoloFixed[step.StepName] = true
 		m.resetFindingSelection(step.StepName)
@@ -139,6 +142,24 @@ func (m Model) respondCmd(action types.ApprovalAction) tea.Cmd {
 		var result ipc.RespondResult
 		err := m.client.Call(ipc.MethodRespond, params, &result)
 		if err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
+func (m Model) processReviewCmd() tea.Cmd {
+	step := awaitingStep(m.steps)
+	if step == nil || !m.isReviewFileGate(step.StepName) || m.client == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		params := &ipc.ProcessReviewParams{
+			RunID: m.runID,
+			Step:  step.StepName,
+		}
+		var result ipc.ProcessReviewResult
+		if err := m.client.Call(ipc.MethodProcessReview, params, &result); err != nil {
 			return errMsg{err}
 		}
 		return nil

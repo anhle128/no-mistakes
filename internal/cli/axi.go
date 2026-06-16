@@ -126,7 +126,7 @@ func runAxiHome(cmd *cobra.Command) error {
 	gated := false
 	if active != nil {
 		steps, _ := env.d.GetStepsByRun(active.ID)
-		rv := runViewFromDB(active, steps)
+		rv := runViewFromDBWithPaths(active, steps, env.p)
 		fields = append(fields, runObjectField(rv))
 		if gate, ok := rv.awaitingStep(); ok {
 			gated = true

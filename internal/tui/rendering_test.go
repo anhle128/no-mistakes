@@ -529,6 +529,23 @@ func TestRenderPipelineView_StatusSuffixDim(t *testing.T) {
 	}
 }
 
+func TestRenderPipelineView_ReviewPhaseLabelDim(t *testing.T) {
+	run := testRun()
+	run.Steps[0].Status = types.StepStatusAwaitingApproval
+	run.Steps[0].ReviewPhaseLabel = ptr("Review preview complete")
+
+	got := renderPipelineView(run, run.Steps, 80, 0, 40)
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiBrightBlack))
+	styledSuffix := dimStyle.Render("- Review preview complete")
+
+	if !strings.Contains(got, styledSuffix) {
+		t.Fatalf("expected review phase label to be styled dim, got:\n%s", got)
+	}
+	if run.Steps[0].Status != types.StepStatusAwaitingApproval {
+		t.Fatalf("raw status changed to %s", run.Steps[0].Status)
+	}
+}
+
 func TestRenderPipelineView_FailedErrorDim(t *testing.T) {
 	// Failed step error messages are also meta-level info and should be dim.
 	run := testRun()

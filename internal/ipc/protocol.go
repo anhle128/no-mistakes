@@ -9,16 +9,17 @@ import (
 
 // JSON-RPC 2.0 method names.
 const (
-	MethodPushReceived = "push_received"
-	MethodGetRun       = "get_run"
-	MethodGetRuns      = "get_runs"
-	MethodGetActiveRun = "get_active_run"
-	MethodRerun        = "rerun"
-	MethodSubscribe    = "subscribe"
-	MethodRespond      = "respond"
-	MethodCancelRun    = "cancel_run"
-	MethodHealth       = "health"
-	MethodShutdown     = "shutdown"
+	MethodPushReceived  = "push_received"
+	MethodGetRun        = "get_run"
+	MethodGetRuns       = "get_runs"
+	MethodGetActiveRun  = "get_active_run"
+	MethodRerun         = "rerun"
+	MethodSubscribe     = "subscribe"
+	MethodRespond       = "respond"
+	MethodProcessReview = "process_review"
+	MethodCancelRun     = "cancel_run"
+	MethodHealth        = "health"
+	MethodShutdown      = "shutdown"
 )
 
 // JSON-RPC 2.0 error codes.
@@ -117,6 +118,13 @@ type RespondParams struct {
 	AddedFindings []types.Finding      `json:"added_findings,omitempty"`
 }
 
+// ProcessReviewParams requests processing of the current review handoff file
+// for a step awaiting human review.
+type ProcessReviewParams struct {
+	RunID string         `json:"run_id"`
+	Step  types.StepName `json:"step"`
+}
+
 // CancelRunParams cancels an active pipeline run.
 type CancelRunParams struct {
 	RunID string `json:"run_id"`
@@ -158,6 +166,12 @@ type RerunResult struct {
 // RespondResult confirms the action was accepted.
 type RespondResult struct {
 	OK bool `json:"ok"`
+}
+
+// ProcessReviewResult confirms the review handoff file was accepted.
+type ProcessReviewResult struct {
+	OK             bool    `json:"ok"`
+	ReviewFilePath *string `json:"review_file_path,omitempty"`
 }
 
 // CancelRunResult confirms the run cancellation request was accepted.
@@ -207,10 +221,13 @@ type StepResultInfo struct {
 	// FixSummaries holds one entry per fix round the pipeline ran for this
 	// step, in round order: the agent's one-line fix summary, or "" when the
 	// round recorded none. Agent surfaces use it to report applied fixes.
-	FixSummaries []string `json:"fix_summaries,omitempty"`
-	Error        *string  `json:"error,omitempty"`
-	StartedAt    *int64   `json:"started_at,omitempty"`
-	CompletedAt  *int64   `json:"completed_at,omitempty"`
+	FixSummaries          []string `json:"fix_summaries,omitempty"`
+	ReviewPhaseLabel      *string  `json:"review_phase_label,omitempty"`
+	ReviewFilePath        *string  `json:"review_file_path,omitempty"`
+	ReviewValidationError *string  `json:"review_validation_error,omitempty"`
+	Error                 *string  `json:"error,omitempty"`
+	StartedAt             *int64   `json:"started_at,omitempty"`
+	CompletedAt           *int64   `json:"completed_at,omitempty"`
 }
 
 // --- Events (for subscribe stream) ---
@@ -229,22 +246,25 @@ const (
 
 // Event is a real-time update sent to subscribers.
 type Event struct {
-	Type             EventType       `json:"type"`
-	RunID            string          `json:"run_id"`
-	RepoID           string          `json:"repo_id"`
-	StepName         *types.StepName `json:"step_name,omitempty"`
-	Status           *string         `json:"status,omitempty"`
-	Error            *string         `json:"error,omitempty"`
-	Stream           *string         `json:"stream,omitempty"`
-	Content          *string         `json:"content,omitempty"`
-	Branch           *string         `json:"branch,omitempty"`
-	Findings         *string         `json:"findings,omitempty"` // JSON-encoded findings for step_completed events
-	Diff             *string         `json:"diff,omitempty"`     // unified diff for fix_review events
-	ReportedFindings *int            `json:"reported_findings,omitempty"`
-	FixedFindings    *int            `json:"fixed_findings,omitempty"`
-	FixSummaries     []string        `json:"fix_summaries,omitempty"`
-	DurationMS       *int64          `json:"duration_ms,omitempty"` // execution-only duration for step events
-	PRURL            *string         `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events
+	Type                  EventType       `json:"type"`
+	RunID                 string          `json:"run_id"`
+	RepoID                string          `json:"repo_id"`
+	StepName              *types.StepName `json:"step_name,omitempty"`
+	Status                *string         `json:"status,omitempty"`
+	Error                 *string         `json:"error,omitempty"`
+	Stream                *string         `json:"stream,omitempty"`
+	Content               *string         `json:"content,omitempty"`
+	Branch                *string         `json:"branch,omitempty"`
+	Findings              *string         `json:"findings,omitempty"` // JSON-encoded findings for step_completed events
+	Diff                  *string         `json:"diff,omitempty"`     // unified diff for fix_review events
+	ReportedFindings      *int            `json:"reported_findings,omitempty"`
+	FixedFindings         *int            `json:"fixed_findings,omitempty"`
+	FixSummaries          []string        `json:"fix_summaries,omitempty"`
+	ReviewPhaseLabel      *string         `json:"review_phase_label,omitempty"`
+	ReviewFilePath        *string         `json:"review_file_path,omitempty"`
+	ReviewValidationError *string         `json:"review_validation_error,omitempty"`
+	DurationMS            *int64          `json:"duration_ms,omitempty"` // execution-only duration for step events
+	PRURL                 *string         `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events
 }
 
 // --- Helpers ---

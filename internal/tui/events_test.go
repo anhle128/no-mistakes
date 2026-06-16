@@ -162,6 +162,36 @@ func TestModel_Update_StepStartedBeginsSpinnerLoop(t *testing.T) {
 	}
 }
 
+func TestModel_ApplyEvent_StoresAndClearsReviewPhaseLabel(t *testing.T) {
+	run := testRun()
+	m := NewModel("/tmp/sock", nil, run)
+	step := types.StepReview
+	awaiting := string(types.StepStatusAwaitingApproval)
+	phase := "Review preview complete"
+
+	m.applyEvent(ipc.Event{
+		Type:             ipc.EventStepCompleted,
+		RunID:            run.ID,
+		StepName:         &step,
+		Status:           &awaiting,
+		ReviewPhaseLabel: &phase,
+	})
+	if m.steps[0].ReviewPhaseLabel == nil || *m.steps[0].ReviewPhaseLabel != phase {
+		t.Fatalf("review phase label = %v, want %q", m.steps[0].ReviewPhaseLabel, phase)
+	}
+
+	completed := string(types.StepStatusCompleted)
+	m.applyEvent(ipc.Event{
+		Type:     ipc.EventStepCompleted,
+		RunID:    run.ID,
+		StepName: &step,
+		Status:   &completed,
+	})
+	if m.steps[0].ReviewPhaseLabel != nil {
+		t.Fatalf("expected review phase label to clear, got %q", *m.steps[0].ReviewPhaseLabel)
+	}
+}
+
 func TestModel_View_NoActiveRun(t *testing.T) {
 	m := Model{}
 	view := m.View()

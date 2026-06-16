@@ -61,6 +61,10 @@ AI code review of your diff.
 - Includes user intent when the run has supplied intent or transcript matching found a relevant local agent session
 - Agent returns findings with severity (`error`, `warning`, `info`), file location, short description, detailed context, suggested fix, and an `action` (`no-op`, `auto-fix`, `ask-user`)
 - Also returns a `risk_level` (`low`, `medium`, `high`) and `risk_rationale`
+- When review findings need approval, writes a Markdown review handoff file with YAML front matter, a deterministic review-result hash, one `no-mistakes-response` block per finding, and display fields exposed as `review_phase_label` and `review_file_path`
+- Validates the handoff file before processing: stale metadata, hash mismatch, missing or duplicate response blocks, invalid actions, oversized files, and oversized solutions keep the gate open with a compact validation error
+- Mirrors legacy `approve`, `fix`, and `skip` automation responses into the same handoff file before executing the response, so AXI and TUI decisions share one audit record
+- After a fix cycle clears all review findings, rewrites the file with prior decisions and `No remaining review findings.`
 
 **Approval:** required if any finding has severity `error` or `warning`. Findings with `action: ask-user` pause for approval instead of entering the normal auto-fix loop. This is for findings that challenge the author's intent, not routine correctness, reliability, or security fixes that may need to re-add a small amount of deleted logic. Findings with `action: auto-fix` remain eligible for the fix loop. Findings with `action: no-op` are informational only.
 
@@ -127,6 +131,7 @@ Pushes the validated branch to the real upstream remote.
 **Behavior:**
 - If `commands.format` is set, runs it first
 - Stages in-repo test evidence artifacts when `test.evidence.store_in_repo` is enabled and the evidence directory is not ignored by Git
+- Force-stages matching review handoff audit files by exact filename, including ignored `.no-mistakes/issues/...` files, without force-staging their parent anchor directories
 - Commits any uncommitted agent changes with message `no-mistakes: apply agent fixes`
 - Queries upstream via `git ls-remote` to get the current SHA for the branch
 - Uses `--force-with-lease` when updating an existing branch (safe force-push that fails if the remote has diverged)
@@ -202,3 +207,5 @@ Each step progresses through these statuses:
 | `completed` | Finished successfully |
 | `skipped` | Pre-skipped for the run, skipped by the user, or skipped automatically by the pipeline |
 | `failed` | Step failed; the step log includes the returned error message so command stderr and provider errors are visible in the per-step log, not only in the daemon log |
+
+Review phase labels such as `Review preview complete` are additive display labels for review gates. They do not change the raw step status values used by IPC, AXI, or automation.

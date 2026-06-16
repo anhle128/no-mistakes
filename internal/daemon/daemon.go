@@ -17,6 +17,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 )
@@ -354,7 +355,9 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 		if err != nil {
 			return nil, fmt.Errorf("get steps: %w", err)
 		}
-		return &ipc.GetRunResult{Run: runToInfo(d, run, steps)}, nil
+		info := runToInfo(d, run, steps)
+		mgr.populateReviewGateInfo(info)
+		return &ipc.GetRunResult{Run: info}, nil
 	})
 
 	srv.Handle(ipc.MethodGetRuns, func(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -372,7 +375,9 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 			if err != nil {
 				return nil, fmt.Errorf("get steps for run %s: %w", r.ID, err)
 			}
-			infos = append(infos, *runToInfo(d, r, steps))
+			info := runToInfo(d, r, steps)
+			mgr.populateReviewGateInfo(info)
+			infos = append(infos, *info)
 		}
 		return &ipc.GetRunsResult{Runs: infos}, nil
 	})
@@ -393,7 +398,9 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 		if err != nil {
 			return nil, fmt.Errorf("get steps: %w", err)
 		}
-		return &ipc.GetActiveRunResult{Run: runToInfo(d, run, steps)}, nil
+		info := runToInfo(d, run, steps)
+		mgr.populateReviewGateInfo(info)
+		return &ipc.GetActiveRunResult{Run: info}, nil
 	})
 
 	srv.Handle(ipc.MethodRerun, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -430,6 +437,23 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 			return nil, err
 		}
 		return &ipc.RespondResult{OK: true}, nil
+	})
+
+	srv.Handle(ipc.MethodProcessReview, func(_ context.Context, params json.RawMessage) (interface{}, error) {
+		var p ipc.ProcessReviewParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		info, err := mgr.HandleProcessReview(p.RunID, p.Step)
+		if err != nil {
+			return nil, err
+		}
+		result := &ipc.ProcessReviewResult{OK: true}
+		if info.ReviewFilePath != "" {
+			path := info.ReviewFilePath
+			result.ReviewFilePath = &path
+		}
+		return result, nil
 	})
 
 	srv.Handle(ipc.MethodCancelRun, func(_ context.Context, params json.RawMessage) (interface{}, error) {
@@ -503,6 +527,9 @@ func stepToInfo(d *db.DB, s *db.StepResult) ipc.StepResultInfo {
 		Error:        s.Error,
 		StartedAt:    s.StartedAt,
 		CompletedAt:  s.CompletedAt,
+	}
+	if label := reviewhandoff.PhaseLabel(s.StepName, s.Status); label != "" {
+		info.ReviewPhaseLabel = &label
 	}
 	if stats, err := d.StepFindingStats(s); err == nil {
 		info.ReportedFindings = stats.ReportedFindings

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewhandoff"
 	"github.com/kunchenguid/no-mistakes/internal/skill"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -63,6 +66,31 @@ func TestFindingsTally(t *testing.T) {
 	}
 }
 
+func TestRunViewFromDBWithPathsRecoversReviewFields(t *testing.T) {
+	p := paths.WithRoot(t.TempDir())
+	run := &db.Run{ID: "run-abcdefgh", RepoID: "repo-1", Branch: "feature/x", HeadSHA: "abcdef1234567890", Status: types.RunRunning}
+	worktree := p.WorktreeDir(run.RepoID, run.ID)
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reviewRel := reviewhandoff.FileName(run.ID)
+	if err := os.WriteFile(filepath.Join(worktree, reviewRel), []byte("review"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	steps := []*db.StepResult{{StepName: types.StepReview, Status: types.StepStatusAwaitingApproval}}
+
+	rv := runViewFromDBWithPaths(run, steps, p)
+	if len(rv.Steps) != 1 {
+		t.Fatalf("step count = %d, want 1", len(rv.Steps))
+	}
+	if rv.Steps[0].ReviewPhaseLabel != "Review preview complete" {
+		t.Fatalf("review phase = %q", rv.Steps[0].ReviewPhaseLabel)
+	}
+	if rv.Steps[0].ReviewFilePath != reviewRel {
+		t.Fatalf("review file path = %q, want %q", rv.Steps[0].ReviewFilePath, reviewRel)
+	}
+}
+
 func TestTruncateDisclosesTotal(t *testing.T) {
 	short := truncate("hello", 100)
 	if short != "hello" {
@@ -84,7 +112,7 @@ func TestWriteRunObjectShape(t *testing.T) {
 		Status:  string(types.RunRunning),
 		HeadSHA: "abcdef1234567890",
 		Steps: []stepView{
-			{Name: "review", Status: "completed", DurationMS: 1200, FindingsJSON: findingsJSON(t, []types.Finding{{ID: "r1", Action: types.ActionNoOp, Description: "ok"}}, "s")},
+			{Name: "review", Status: "awaiting_approval", ReviewPhaseLabel: "Review preview complete", ReviewFilePath: "review-issues-run-1.md", DurationMS: 1200, FindingsJSON: findingsJSON(t, []types.Finding{{ID: "r1", Action: types.ActionNoOp, Description: "ok"}}, "s")},
 			{Name: "test", Status: "awaiting_approval"},
 		},
 	}
@@ -97,9 +125,9 @@ func TestWriteRunObjectShape(t *testing.T) {
 		"  status: running\n",
 		"  head: abcdef12\n",
 		"  findings: 1 info\n",
-		"  steps[2]{step,status,findings,duration_ms}:\n",
-		"    review,completed,1,1200\n",
-		"    test,awaiting_approval,0,0\n",
+		"  steps[2]{step,status,review_phase_label,review_file_path,findings,duration_ms}:\n",
+		"    review,awaiting_approval,Review preview complete,review-issues-run-1.md,1,1200\n",
+		"    test,awaiting_approval,\"\",\"\",0,0\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("run object missing %q in:\n%s", want, out)
@@ -109,8 +137,10 @@ func TestWriteRunObjectShape(t *testing.T) {
 
 func TestWriteGateShape(t *testing.T) {
 	gate := stepView{
-		Name:   "review",
-		Status: "awaiting_approval",
+		Name:             "review",
+		Status:           "awaiting_approval",
+		ReviewPhaseLabel: "Review preview complete",
+		ReviewFilePath:   "review-issues-run-1.md",
 		FindingsJSON: findingsJSON(t, []types.Finding{
 			{
 				ID:           "review-1",
@@ -130,6 +160,8 @@ func TestWriteGateShape(t *testing.T) {
 		"gate:\n",
 		"  step: review\n",
 		"  status: awaiting_approval\n",
+		"  review_phase_label: Review preview complete\n",
+		"  review_file_path: review-issues-run-1.md\n",
 		"  summary: 1 blocking issue\n",
 		"  findings[1]{id,severity,file,action,description,context,suggested_fix}:\n",
 		`    review-1,warning,main.go,ask-user,"calls os.Exit, leaks fd","The command exits before defers can close the opened file descriptor, so repeated failures can leak descriptors.",Return an error to the caller and let the top-level command decide whether to exit.`,

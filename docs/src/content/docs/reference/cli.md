@@ -75,6 +75,9 @@ When starting a new run, `axi run` refuses the default branch and uncommitted wo
 Reattaching to an in-flight run does not require `--intent`.
 With `--yes`, `axi run` treats both `action: auto-fix` and `action: ask-user` findings as standing consent for the pipeline to fix them by selecting every finding, then accepts the resulting fix review.
 Gates with no findings or only `action: no-op` findings are approved as-is, and each step is fixed at most once so unresolved findings do not loop forever.
+Review gates may include `review_phase_label` and `review_file_path` alongside the raw `status`.
+The raw status remains `awaiting_approval` or `fix_review`; the label is display-only, and `review_file_path` points at the Markdown handoff file that becomes the PR audit record.
+Legacy AXI responses still work on review-file gates. When an agent responds with `approve`, `fix`, or `skip`, the daemon first validates and mirrors that exact executed decision into the handoff file before advancing.
 Without `--yes`, an agent driving `axi run` should stop when a gate contains `action: ask-user` findings and relay each finding's ID, file, full description, context, and suggested fix to the user before responding.
 When the CI step is still monitoring an open PR and checks are green, `axi run` exits successfully with `outcome: checks-passed` instead of waiting for a human merge.
 Treat that as the agent stopping point: ask the user to review and merge the PR from the `help` line.
@@ -103,6 +106,8 @@ no-mistakes axi respond --action skip
 
 After the explicit response, `--yes` uses the same auto-resolution behavior as `axi run --yes`: have the pipeline fix `auto-fix` and `ask-user` findings once, approve the fix review, approve gates that only contain non-actionable `no-op` findings, and stop at `outcome: checks-passed` when CI is green but the PR still needs a human merge.
 The same successful-output reporting instructions apply to `axi respond` results.
+On a review-file gate, `axi respond` is also the automation compatibility path: it rewrites the handoff file with the response blocks and processed metadata that match the response before executing it.
+If the current handoff file is stale, already processed, malformed, missing response blocks, or over the size limits, the command fails and the gate remains open until the file is repaired or the run is aborted.
 
 ## no-mistakes axi status
 
@@ -116,6 +121,8 @@ no-mistakes axi status --run <id>
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--run` | `string` | active or most recent | Inspect a specific run ID |
+
+Status output includes nullable `review_phase_label` and `review_file_path` columns for review steps when a review handoff file is active or recoverable from the worktree.
 
 ## no-mistakes axi logs
 

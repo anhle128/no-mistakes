@@ -116,6 +116,9 @@ When an agent starts a new run, `--intent` is required and should describe what 
 Agents should prefer a few complete sentences over a terse summary, capturing user decisions, tradeoffs, constraints, ruled-out approaches, and explicit requests that would not be obvious from the diff alone.
 If the repo is on the default branch or has uncommitted changes, direct `axi run` returns a structured error with the command the agent should run instead of silently creating a branch or commit.
 Approval gates are exposed as `gate:` objects with finding IDs, severities, files, actions, descriptions, detailed context, suggested fixes, and help commands for `no-mistakes axi respond`.
+Review gates may also include `review_phase_label` and `review_file_path`. The label is display-only; the path points at the Markdown handoff file that human TUI users can edit and process.
+Agents should continue to answer through `no-mistakes axi respond`; the daemon mirrors that exact `approve`, `fix`, or `skip` decision into the handoff file before advancing.
+If `axi respond` fails with a review-file validation error, do not edit the code yourself. Surface the error and either repair the handoff file deliberately or ask the user to resolve it in the TUI.
 An agent should resolve `action: auto-fix` findings on its own judgment, ignore `action: no-op` findings when approving, and stop on `action: ask-user` findings unless it is running with explicit `--yes` consent.
 When it stops for `ask-user`, it should relay each finding's ID, file, full description, context, and suggested fix to the user before choosing `approve`, `fix`, or `skip`.
 Resolving a finding always means responding with `no-mistakes axi respond --action fix`, which has the pipeline apply the fix and re-review it - the agent must not edit the code itself while a run is active.

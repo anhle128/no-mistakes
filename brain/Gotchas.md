@@ -1,5 +1,35 @@
 # Gotchas
 
+## 2026-06-16 - Curate Ultragoal stories from feature directories
+
+What happened: I fed the full feature spec, plan, contracts, and tasks into `omx ultragoal create-goals --from-stdin`. The generator expanded clarifications, acceptance scenarios, functional requirements, success criteria, and notes into more than 100 tiny goals instead of executable implementation stories.
+
+Why it went wrong: I treated a feature directory as a raw brief blob. Ultragoal goal generation works better when supplied explicit story-level `--goal "title::objective"` entries derived from the feature phases.
+
+Rule: For Spec Kit feature directories, read the artifacts first, then create a small curated Ultragoal plan with explicit goals aligned to implementation slices. Do not pipe the entire spec directory into `create-goals` unless the desired output is requirement-fragment tracking.
+
+Relevant context: `.specify/feature.json`, `specs/001-review-file-handoff/tasks.md`, `.omx/ultragoal/goals.json`.
+
+## 2026-06-16 - Use fixed-string grep for Markdown verification
+
+What happened: I ran `grep -c -F '<Before>'` checks for Markdown list-item snippets whose first character was `-`; BSD grep interpreted the pattern as an option and failed before searching. I later used regex grep on Markdown bold text containing `**`, which failed with `repetition-operator operand invalid`.
+
+Why it went wrong: I quoted the pattern correctly for backticks but forgot that a leading hyphen is still parsed as an option unless option parsing is terminated, and that Markdown markers are regex metacharacters in normal grep mode.
+
+Rule: For literal grep checks on Markdown bullets, task lines, or bold markers, run `grep -F -- '<pattern>' <file>` or `rg --fixed-strings '<pattern>' <file>` so Markdown syntax is treated as data.
+
+Relevant context: `specs/001-review-file-handoff/analyze-findings-2026-06-16.md`.
+
+## 2026-06-16 - Quote shell search patterns containing backticks
+
+What happened: I ran an `rg` verification command with the pattern inside double quotes while the pattern contained Markdown backticks around `solution:`. zsh attempted command substitution and emitted `command not found: solution:` before `rg` ran.
+
+Why it went wrong: I treated a documentation search pattern like inert text, but shell backticks are active inside double quotes.
+
+Rule: Use single quotes, `--fixed-strings`, or a here-doc-driven verifier for shell searches containing Markdown code spans/backticks.
+
+Relevant context: `specs/001-review-file-handoff/spec.md`.
+
 ## 2026-06-14 - Trace user-visible data end to end
 
 What happened: I treated the review `suggested_fix` fields as proof that the UI showed the solution, but the user was asking about the post-fix `Review - review fix:` screen. The live TUI showed the original finding details but did not surface the applied fix summary after the agent ran.

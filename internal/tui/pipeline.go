@@ -159,10 +159,11 @@ func renderPipelineView(run *ipc.RunInfo, steps []ipc.StepResultInfo, width int,
 
 		// Add status suffix for non-obvious states (dim per Typography Scale "Meta").
 		// Error messages are truncated to fit within the remaining line width.
-		switch step.Status {
-		case types.StepStatusAwaitingApproval:
+		if step.ReviewPhaseLabel != nil && *step.ReviewPhaseLabel != "" {
+			line += " " + dimStyle.Render("- "+*step.ReviewPhaseLabel)
+		} else if step.Status == types.StepStatusAwaitingApproval {
 			line += " " + dimStyle.Render("- awaiting approval")
-		case types.StepStatusFailed:
+		} else if step.Status == types.StepStatusFailed {
 			if step.Error != nil {
 				errText := "- " + *step.Error
 				remaining := contentWidth - lipgloss.Width(line) - 1 // -1 for space before suffix
@@ -232,6 +233,22 @@ func renderActionBar(steps []ipc.StepResultInfo, showSelectionActions bool, allo
 	// Hide selection actions in diff mode since toggle/A/N keys don't work there.
 	effectiveSelection := showSelectionActions && !showDiff
 	b.WriteString(renderApprovalActions(effectiveSelection, allowFix, showDiff, selectedCount, totalCount, confirmAbort, hasDiff))
+	return b.String()
+}
+
+func renderReviewFileActionBar(step types.StepName) string {
+	var b strings.Builder
+	promptStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ansiYellow))
+	b.WriteString(promptStyle.Render(fmt.Sprintf("%s awaiting review file:", stepLabel(step))))
+	b.WriteString("\n")
+	boldKey := lipgloss.NewStyle().Bold(true)
+	renderAction := func(key, label string) string {
+		return boldKey.Render(key) + " " + label
+	}
+	b.WriteString(" " + strings.Join([]string{
+		renderAction("p", "process"),
+		renderAction("c", "cancel"),
+	}, "  "))
 	return b.String()
 }
 

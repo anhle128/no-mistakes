@@ -969,8 +969,15 @@ func TestSanitizedPreviousFindingsForPrompt_PreservesSourceAndInstructions(t *te
 	if err != nil {
 		t.Fatalf("ParseFindingsJSON() error = %v", err)
 	}
-	if findings.Items[0].UserInstructions != "only touch parser.go" {
-		t.Errorf("expected UserInstructions preserved, got %q", findings.Items[0].UserInstructions)
+	instructions := findings.Items[0].UserInstructions
+	for _, want := range []string{
+		"BEGIN_UNTRUSTED_USER_SOLUTION finding_id=review-1",
+		"only touch parser.go",
+		"END_UNTRUSTED_USER_SOLUTION finding_id=review-1",
+	} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("expected UserInstructions to contain %q, got %q", want, instructions)
+		}
 	}
 	if findings.Items[1].Source != types.FindingSourceUser {
 		t.Errorf("expected Source %q, got %q", types.FindingSourceUser, findings.Items[1].Source)

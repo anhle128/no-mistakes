@@ -94,6 +94,8 @@ $ no-mistakes
 
 From the TUI you act on each **finding**: **auto-fix** ones are applied for you (or approve to let them), **ask-user** ones are a judgement call you approve, fix, or skip. Once every check is green, the gate forwards your branch upstream and opens the PR for you — no manual `git push origin`, no hand-written PR body. Prefer to let your coding agent drive the same flow headlessly? Use `/no-mistakes` (see below).
 
+When the review step needs judgment, no-mistakes also writes a Markdown review handoff file in the worktree and shows its path in the TUI and AXI output. Edit the file's response blocks, process it from the TUI, and the final audit file is committed with the PR branch. Existing `approve`, `fix`, and `skip` automation still works; those responses are mirrored into the same audit file before the gate continues.
+
 ## Three ways to trigger the gate
 
 Every change runs through the same pipeline. Pick the entry point that fits how you're working when the change is ready:

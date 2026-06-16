@@ -131,6 +131,15 @@ Run the pipeline and decide on its findings as they come up:
      touches product behavior. This is a call only the user can make - see
      [Escalate ` + "`ask-user`" + ` findings](#escalate-ask-user-findings) below.
 
+   Review gates may also include ` + "`review_phase_label`" + ` and ` + "`review_file_path`" + `.
+   The label is display-only; the path points at the Markdown handoff file that
+   human TUI users can edit and process. Continue to answer through
+   ` + "`no-mistakes axi respond`" + `; the daemon mirrors that exact ` + "`approve`" + `,
+   ` + "`fix`" + `, or ` + "`skip`" + ` decision into the handoff file before advancing. If a
+   response fails with a review-file validation error, do not edit the code
+   yourself. Surface the error and either repair the handoff file deliberately
+   or ask the user to resolve it in the TUI.
+
    Choose one response:
    ` + "```sh" + `
    # accept the step as-is and continue
