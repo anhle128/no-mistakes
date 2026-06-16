@@ -1,0 +1,23 @@
+# no-mistakes repo configuration
+#
+# Agent choice is intentionally inherited from ~/.no-mistakes/config.yaml so
+# contributors can keep using their configured local agent.
+
+commands:
+  test: "make test"
+  lint: "make lint && make docs-build"
+  format: "make fmt"
+
+ignore_patterns:
+  - "bin/**"
+  - "tmp/**"
+  - "docs/dist/**"
+  - "docs/.astro/**"
+  - ".no-mistakes/evidence/**"
+  - "demo.gif"
+  - "demo.mp4"
+
+test:
+  evidence:
+    store_in_repo: true
+    dir: .no-mistakes/evidence
