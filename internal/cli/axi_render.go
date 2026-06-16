@@ -125,7 +125,13 @@ func runViewFromDBWithPaths(r *db.Run, steps []*db.StepResult, p *paths.Paths) r
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
-	reviewFilePath := reviewFilePathForRun(p, r)
+	// Resolving the review file path walks the checkout tree, so only do it when
+	// a review step is actually present to consume the result. Runs without a
+	// review step (the common case for the DB-fallback render) skip the walk.
+	reviewFilePath := ""
+	if hasReviewStep(steps) {
+		reviewFilePath = reviewFilePathForRun(p, r)
+	}
 	for _, s := range steps {
 		sv := stepView{Name: string(s.StepName), Status: string(s.Status)}
 		if label := reviewhandoff.PhaseLabel(s.StepName, s.Status); label != "" {
@@ -143,6 +149,15 @@ func runViewFromDBWithPaths(r *db.Run, steps []*db.StepResult, p *paths.Paths) r
 		rv.Steps = append(rv.Steps, sv)
 	}
 	return rv
+}
+
+func hasReviewStep(steps []*db.StepResult) bool {
+	for _, s := range steps {
+		if s.StepName == types.StepReview {
+			return true
+		}
+	}
+	return false
 }
 
 func reviewFilePathForRun(p *paths.Paths, r *db.Run) string {

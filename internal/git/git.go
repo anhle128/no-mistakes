@@ -23,6 +23,18 @@ func IsZeroSHA(sha string) bool {
 // Run executes a git command in the given directory and returns trimmed stdout.
 // Returns an error that includes the command and stderr on failure.
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := RunRaw(ctx, dir, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// RunRaw executes a git command and returns stdout verbatim, without trimming.
+// Use it where leading or trailing bytes are significant — for example
+// NUL-delimited porcelain output whose first record carries a leading status
+// byte that whitespace trimming would corrupt.
+func RunRaw(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = NonInteractiveEnv(dir)
@@ -32,9 +44,9 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 		if ee, ok := err.(*exec.ExitError); ok {
 			stderr = strings.TrimSpace(string(ee.Stderr))
 		}
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr)
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return out, nil
 }
 
 // InitBare creates a new bare git repository at the given path.
@@ -284,6 +296,41 @@ func HasUncommittedChanges(ctx context.Context, dir string) (bool, error) {
 		return false, err
 	}
 	return out != "", nil
+}
+
+// StatusChangedPaths returns the worktree-relative paths of every changed file
+// (staged, worktree-modified, deleted, and untracked). It parses NUL-delimited
+// porcelain output so paths survive verbatim: the leading status byte of the
+// first record is preserved, and unusual or non-ASCII filenames are not octal
+// escaped or quoted. For renames and copies the destination (worktree) path is
+// returned; the source path that git emits as a trailing record is discarded.
+func StatusChangedPaths(ctx context.Context, dir string) ([]string, error) {
+	out, err := RunRaw(ctx, dir, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil, err
+	}
+	return parsePorcelainZ(out), nil
+}
+
+func parsePorcelainZ(out []byte) []string {
+	records := strings.Split(string(out), "\x00")
+	var paths []string
+	for i := 0; i < len(records); i++ {
+		rec := records[i]
+		if len(rec) < 4 {
+			continue
+		}
+		// A rename or copy record (`R`/`C` in either status column) is followed
+		// by the source path as its own NUL record; consume it so it is not
+		// mistaken for a status entry.
+		if rec[0] == 'R' || rec[0] == 'C' || rec[1] == 'R' || rec[1] == 'C' {
+			i++
+		}
+		if path := rec[3:]; path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 // CreateBranch creates a new branch with the given name and switches to it.

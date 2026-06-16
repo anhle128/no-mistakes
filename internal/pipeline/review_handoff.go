@@ -446,25 +446,10 @@ func reviewValidationMessage(path string, err error) string {
 }
 
 func changedPathsFromGitStatus(ctx context.Context, workDir string) []string {
-	out, err := git.Run(ctx, workDir, "status", "--porcelain=v1", "--untracked-files=all")
+	paths, err := git.StatusChangedPaths(ctx, workDir)
 	if err != nil {
 		slog.Debug("failed to collect git status paths for review handoff", "error", err)
 		return nil
-	}
-	var paths []string
-	for _, line := range strings.Split(out, "\n") {
-		if len(line) < 4 {
-			continue
-		}
-		path := strings.TrimSpace(line[3:])
-		if before, after, ok := strings.Cut(path, " -> "); ok {
-			_ = before
-			path = strings.TrimSpace(after)
-		}
-		path = strings.Trim(path, `"`)
-		if path != "" {
-			paths = append(paths, path)
-		}
 	}
 	return paths
 }

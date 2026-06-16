@@ -66,6 +66,59 @@ func TestPushStep_ReconcilesStaleDatabaseHeadSHA(t *testing.T) {
 	}
 }
 
+func TestPushStep_CommitsModifiedTrackedFile(t *testing.T) {
+	t.Parallel()
+	// A worktree-modified tracked file is reported by porcelain with a leading
+	// status space (" M app/foo.go"). When it is the first changed path, the
+	// stage step must commit it intact rather than corrupting the pathspec.
+	upstream := t.TempDir()
+	gitCmd(t, upstream, "init", "--bare")
+
+	dir := t.TempDir()
+	gitCmd(t, dir, "init")
+	gitCmd(t, dir, "config", "user.name", "test")
+	gitCmd(t, dir, "config", "user.email", "test@test.com")
+	gitCmd(t, dir, "checkout", "-b", "main")
+	if err := os.MkdirAll(filepath.Join(dir, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app", "foo.go"), []byte("orig\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "initial")
+	gitCmd(t, dir, "remote", "add", "origin", upstream)
+	gitCmd(t, dir, "push", "origin", "main")
+	gitCmd(t, dir, "checkout", "-b", "feature")
+
+	baseSHA := gitCmd(t, dir, "rev-parse", "main")
+	headSHA := gitCmd(t, dir, "rev-parse", "HEAD")
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Repo.UpstreamURL = upstream
+	sctx.Run.Branch = "feature"
+
+	// Modify the existing tracked file (unstaged), simulating an agent fix.
+	if err := os.WriteFile(filepath.Join(dir, "app", "foo.go"), []byte("modified\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	step := &PushStep{}
+	if _, err := step.Execute(sctx); err != nil {
+		t.Fatalf("push with modified tracked file: %v", err)
+	}
+
+	clone := t.TempDir()
+	gitCmd(t, clone, "clone", "--branch", "feature", upstream, ".")
+	got, err := os.ReadFile(filepath.Join(clone, "app", "foo.go"))
+	if err != nil {
+		t.Fatalf("read pushed file: %v", err)
+	}
+	if string(got) != "modified\n" {
+		t.Fatalf("pushed app/foo.go = %q, want %q", got, "modified\n")
+	}
+}
+
 func TestPushStep_ForceAddsInRepoEvidenceArtifacts(t *testing.T) {
 	t.Parallel()
 	upstream := t.TempDir()

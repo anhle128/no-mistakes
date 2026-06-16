@@ -200,7 +200,7 @@ func (s *PushStep) reviewAuditRequirement(sctx *pipeline.StepContext) (reviewAud
 }
 
 func (s *PushStep) stageAgentChanges(sctx *pipeline.StepContext) error {
-	out, err := git.Run(sctx.Ctx, sctx.WorkDir, "status", "--porcelain=v1", "--untracked-files=all")
+	paths, err := git.StatusChangedPaths(sctx.Ctx, sctx.WorkDir)
 	if err != nil {
 		return err
 	}
@@ -208,10 +208,12 @@ func (s *PushStep) stageAgentChanges(sctx *pipeline.StepContext) error {
 	if err != nil {
 		return err
 	}
-	paths := parsePorcelainPaths(out)
 	stage := make([]string, 0, len(paths))
 	for _, path := range paths {
 		if shouldExcludeFromBroadPushStage(path, sctx.Run.ID, requirement) {
+			if isAnchorExclusion(path, requirement) {
+				sctx.Log(fmt.Sprintf("skipping uncommitted changes to anchor file %s (used only to locate the review audit file)", filepath.ToSlash(path)))
+			}
 			continue
 		}
 		stage = append(stage, filepath.ToSlash(path))
@@ -229,10 +231,11 @@ func shouldExcludeFromBroadPushStage(path, runID string, requirement reviewAudit
 	if filepath.Base(rel) == reviewhandoff.FileName(runID) {
 		return true
 	}
-	if requirement.AnchorRel != "" && rel == filepath.ToSlash(requirement.AnchorRel) {
-		return true
-	}
-	return false
+	return isAnchorExclusion(path, requirement)
+}
+
+func isAnchorExclusion(path string, requirement reviewAuditRequirementInfo) bool {
+	return requirement.AnchorRel != "" && filepath.ToSlash(path) == filepath.ToSlash(requirement.AnchorRel)
 }
 
 func stageReviewHandoffFile(sctx *pipeline.StepContext, rel string) (bool, error) {
@@ -636,11 +639,7 @@ func reviewRoundsRequireAudit(rounds []*db.StepRound) bool {
 }
 
 func pushChangedPathsFromGitStatus(sctx *pipeline.StepContext) ([]string, error) {
-	out, err := git.Run(sctx.Ctx, sctx.WorkDir, "status", "--porcelain=v1", "--untracked-files=all")
-	if err != nil {
-		return nil, err
-	}
-	return parsePorcelainPaths(out), nil
+	return git.StatusChangedPaths(sctx.Ctx, sctx.WorkDir)
 }
 
 func pushReviewedChangedPaths(sctx *pipeline.StepContext) ([]string, error) {
@@ -656,24 +655,6 @@ func pushReviewedChangedPaths(sctx *pipeline.StepContext) ([]string, error) {
 		return nil, err
 	}
 	return files, nil
-}
-
-func parsePorcelainPaths(out string) []string {
-	var paths []string
-	for _, line := range strings.Split(out, "\n") {
-		if len(line) < 4 {
-			continue
-		}
-		path := strings.TrimSpace(line[3:])
-		if _, after, ok := strings.Cut(path, " -> "); ok {
-			path = strings.TrimSpace(after)
-		}
-		path = strings.Trim(path, `"`)
-		if path != "" {
-			paths = append(paths, path)
-		}
-	}
-	return paths
 }
 
 func (s *PushStep) stageInRepoEvidence(sctx *pipeline.StepContext) error {

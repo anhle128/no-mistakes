@@ -45,7 +45,7 @@ func validateMetadata(meta Metadata, live LiveState) error {
 	if meta.RunID != live.RunID {
 		return fmt.Errorf("run_id mismatch: got %q want %q", meta.RunID, live.RunID)
 	}
-	if meta.Step != StepReview || meta.Step != live.Step {
+	if meta.Step != StepReview {
 		return fmt.Errorf("step must be review")
 	}
 	if meta.Status != live.Status {

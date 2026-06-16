@@ -156,6 +156,50 @@ func TestRenderParseValidateAndDeriveDecision(t *testing.T) {
 	}
 }
 
+// TestParseResponseBlocksAllowsFenceInSolution ensures a code fence pasted
+// inside a solution block scalar does not prematurely terminate the response
+// block. Fences nested in a solution are indented under "solution: |"; only a
+// column-0 ``` closes the block.
+func TestParseResponseBlocksAllowsFenceInSolution(t *testing.T) {
+	fence := "```"
+	lines := []string{
+		fence + FenceLanguage,
+		"id: review-1",
+		"action: fix",
+		"solution: |",
+		"  Replace the parser. Example:",
+		"  " + fence + "go",
+		"  x := 1",
+		"  " + fence,
+		"  Done.",
+		fence,
+		fence + FenceLanguage,
+		"id: review-2",
+		"action: accept",
+		fence,
+	}
+	data := []byte(strings.Join(lines, "\n") + "\n")
+
+	blocks, err := ParseResponseBlocks(data)
+	if err != nil {
+		t.Fatalf("ParseResponseBlocks: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %d, want 2: %#v", len(blocks), blocks)
+	}
+	if blocks[0].ID != "review-1" || blocks[0].Action != "fix" {
+		t.Fatalf("block 0 = %#v", blocks[0])
+	}
+	for _, want := range []string{"x := 1", fence + "go", "Done."} {
+		if !strings.Contains(blocks[0].Solution, want) {
+			t.Fatalf("solution truncated at nested fence, missing %q:\n%s", want, blocks[0].Solution)
+		}
+	}
+	if blocks[1].ID != "review-2" || blocks[1].Action != "accept" {
+		t.Fatalf("block 1 = %#v", blocks[1])
+	}
+}
+
 func TestResolvePathRejectsSymlinkEscapes(t *testing.T) {
 	checkout := t.TempDir()
 	outside := t.TempDir()

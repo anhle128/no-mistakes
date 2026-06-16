@@ -27,17 +27,27 @@ func ParseFrontMatter(data []byte) (Metadata, []byte, error) {
 	return meta, body, nil
 }
 
+// fenceLine reports whether a line is a code fence delimiter at column 0.
+// Trailing whitespace and carriage returns are tolerated for editor
+// round-trips, but a leading indent is not: an indented ``` belongs to the
+// YAML block scalar of a solution (e.g. pasted code), not to the markdown
+// fence that delimits the response block. The writer always emits these
+// fences at column 0, so a column-0 match cannot misfire on solution content.
+func fenceLine(line []byte, want string) bool {
+	return strings.TrimRight(string(line), " \t\r") == want
+}
+
 func ParseResponseBlocks(data []byte) ([]ResponseBlock, error) {
 	lines := bytes.Split(data, []byte("\n"))
 	var blocks []ResponseBlock
 	for i := 0; i < len(lines); i++ {
-		if strings.TrimSpace(string(lines[i])) != "```"+FenceLanguage {
+		if !fenceLine(lines[i], "```"+FenceLanguage) {
 			continue
 		}
 		start := i + 1
 		end := -1
 		for j := start; j < len(lines); j++ {
-			if strings.TrimSpace(string(lines[j])) == "```" {
+			if fenceLine(lines[j], "```") {
 				end = j
 				break
 			}
