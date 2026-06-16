@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -151,7 +152,7 @@ func (m Model) View() string {
 				if contentBudget >= 0 {
 					boxHeight = contentBudget
 				}
-				appendExtraSection(renderReviewFileGateBox(label, m.reviewFilePath(step.StepName), m.reviewValidationError(step.StepName), m.stepFindings[step.StepName], rightWidth, boxHeight))
+				appendExtraSection(renderReviewFileGateBox(label, m.reviewFilePath(step.StepName), m.reviewFileAbsPath(step.StepName), m.reviewValidationError(step.StepName), m.stepFindings[step.StepName], rightWidth, boxHeight))
 			} else if m.showDiff {
 				if raw, ok := m.stepDiffs[step.StepName]; ok && raw != "" {
 					// Build finding context for diff view header.
@@ -318,7 +319,7 @@ func renderFindingsBoxForHeight(raw string, width int, cursor int, selected map[
 	return renderBoxWithStyledTitle(styledTitle, rendered, boxWidth, scrollFooter)
 }
 
-func renderReviewFileGateBox(label, path, validation, raw string, width int, boxHeight int) string {
+func renderReviewFileGateBox(label, path, absPath, validation, raw string, width int, boxHeight int) string {
 	if path == "" || (boxHeight > 0 && boxHeight < 3) {
 		return ""
 	}
@@ -336,6 +337,11 @@ func renderReviewFileGateBox(label, path, validation, raw string, width int, box
 	lines := []string{}
 	if trimmed, _ := cutText("File: "+path, contentWidth); trimmed != "" {
 		lines = append(lines, trimmed)
+	}
+	if absPath != "" {
+		if trimmed, _ := cutText("Location: "+reviewFileLocation(path, absPath), contentWidth); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
 	}
 	if summary := reviewFileFindingSummary(raw); summary != "" {
 		if trimmed, _ := cutText(summary, contentWidth); trimmed != "" {
@@ -361,6 +367,21 @@ func renderReviewFileGateBox(label, path, validation, raw string, width int, box
 	return renderBoxWithStyledTitle(title, strings.Join(lines, "\n"), boxWidth, "")
 }
 
+func reviewFileLocation(path, absPath string) string {
+	if absPath == "" {
+		return ""
+	}
+	if path != "" {
+		cleanAbs := filepath.Clean(absPath)
+		cleanRel := filepath.Clean(filepath.FromSlash(path))
+		suffix := string(filepath.Separator) + cleanRel
+		if strings.HasSuffix(cleanAbs, suffix) {
+			return strings.TrimSuffix(cleanAbs, suffix)
+		}
+	}
+	return filepath.Dir(absPath)
+}
+
 func reviewFileFindingSummary(raw string) string {
 	f, err := parseFindings(raw)
 	if err != nil || f == nil {
@@ -370,13 +391,13 @@ func reviewFileFindingSummary(raw string) string {
 	for _, item := range f.Items {
 		counts[item.Severity]++
 	}
-	parts := []string{fmt.Sprintf("Findings: %d", len(f.Items))}
+	parts := []string{fmt.Sprintf("Findings: (%d)", len(f.Items))}
 	for _, sev := range []string{"error", "warning", "info"} {
 		if c := counts[sev]; c > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d", severityIcon(sev), c))
+			parts = append(parts, fmt.Sprintf("%s(%d)", severityIcon(sev), c))
 		}
 	}
-	return strings.Join(parts, "  ")
+	return strings.Join(parts, " - ")
 }
 
 func renderLogBox(logs []string, width int, logLines int, remainingBudget int) string {

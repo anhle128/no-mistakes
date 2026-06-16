@@ -453,6 +453,10 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 			path := info.ReviewFilePath
 			result.ReviewFilePath = &path
 		}
+		if info.ReviewFileAbsPath != "" {
+			path := info.ReviewFileAbsPath
+			result.ReviewFileAbsPath = &path
+		}
 		return result, nil
 	})
 

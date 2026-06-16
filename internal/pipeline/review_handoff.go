@@ -28,11 +28,13 @@ type reviewGateState struct {
 
 type reviewGateSnapshot struct {
 	RelPath         string
+	AbsPath         string
 	ValidationError string
 }
 
 type ReviewGateInfo struct {
 	ReviewFilePath        string
+	ReviewFileAbsPath     string
 	ReviewValidationError string
 }
 
@@ -146,6 +148,7 @@ func (e *Executor) currentReviewGateForEvent(runID string, step types.StepName, 
 	}
 	return &reviewGateSnapshot{
 		RelPath:         e.reviewGate.RelPath,
+		AbsPath:         e.reviewGate.AbsPath,
 		ValidationError: e.reviewGate.ValidationError,
 	}
 }
@@ -158,6 +161,7 @@ func (e *Executor) ReviewGateInfo(step types.StepName) (ReviewGateInfo, bool) {
 	}
 	return ReviewGateInfo{
 		ReviewFilePath:        e.reviewGate.RelPath,
+		ReviewFileAbsPath:     e.reviewGate.AbsPath,
 		ReviewValidationError: e.reviewGate.ValidationError,
 	}, true
 }
@@ -429,6 +433,7 @@ func (e *Executor) failReviewGateValidation(gate reviewGateState, err error) err
 		Status:                &status,
 		ReviewPhaseLabel:      phaseLabelPtr,
 		ReviewFilePath:        &gate.RelPath,
+		ReviewFileAbsPath:     &gate.AbsPath,
 		ReviewValidationError: &message,
 	})
 	return fmt.Errorf("%s", message)

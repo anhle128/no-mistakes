@@ -74,6 +74,9 @@ func (m *Model) applyEvent(event ipc.Event) {
 		if event.StepName != nil && event.ReviewFilePath != nil && *event.ReviewFilePath != "" {
 			m.reviewFilePaths[*event.StepName] = *event.ReviewFilePath
 		}
+		if event.StepName != nil && event.ReviewFileAbsPath != nil && *event.ReviewFileAbsPath != "" {
+			m.reviewFileAbsPaths[*event.StepName] = *event.ReviewFileAbsPath
+		}
 		if event.StepName != nil && event.ReviewValidationError != nil {
 			if *event.ReviewValidationError == "" {
 				delete(m.reviewValidationErrors, *event.StepName)

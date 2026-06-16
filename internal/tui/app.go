@@ -24,6 +24,7 @@ type Model struct {
 	stepFindings           map[types.StepName]string            // step name → raw findings JSON
 	stepDiffs              map[types.StepName]string            // step name → raw unified diff
 	reviewFilePaths        map[types.StepName]string            // step name → active review handoff path
+	reviewFileAbsPaths     map[types.StepName]string            // step name → active absolute review handoff path
 	reviewValidationErrors map[types.StepName]string            // step name → current review file validation error
 	findingSelections      map[types.StepName]map[string]bool   // step name → finding ID → selected
 	findingCursor          map[types.StepName]int               // step name → current finding cursor
@@ -74,6 +75,7 @@ func NewModel(socketPath string, client *ipc.Client, run *ipc.RunInfo) Model {
 		stepFindings:           make(map[types.StepName]string),
 		stepDiffs:              make(map[types.StepName]string),
 		reviewFilePaths:        make(map[types.StepName]string),
+		reviewFileAbsPaths:     make(map[types.StepName]string),
 		reviewValidationErrors: make(map[types.StepName]string),
 		findingSelections:      make(map[types.StepName]map[string]bool),
 		findingCursor:          make(map[types.StepName]int),
@@ -94,6 +96,9 @@ func NewModel(socketPath string, client *ipc.Client, run *ipc.RunInfo) Model {
 		}
 		if s.ReviewFilePath != nil && *s.ReviewFilePath != "" {
 			m.reviewFilePaths[s.StepName] = *s.ReviewFilePath
+		}
+		if s.ReviewFileAbsPath != nil && *s.ReviewFileAbsPath != "" {
+			m.reviewFileAbsPaths[s.StepName] = *s.ReviewFileAbsPath
 		}
 		if s.ReviewValidationError != nil && *s.ReviewValidationError != "" {
 			m.reviewValidationErrors[s.StepName] = *s.ReviewValidationError

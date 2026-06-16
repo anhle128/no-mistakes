@@ -520,6 +520,10 @@ func (m *RunManager) populateReviewGateInfo(info *ipc.RunInfo) {
 			path := gate.ReviewFilePath
 			info.Steps[i].ReviewFilePath = &path
 		}
+		if gate.ReviewFileAbsPath != "" {
+			path := gate.ReviewFileAbsPath
+			info.Steps[i].ReviewFileAbsPath = &path
+		}
 		if gate.ReviewValidationError != "" {
 			validation := gate.ReviewValidationError
 			info.Steps[i].ReviewValidationError = &validation

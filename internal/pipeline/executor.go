@@ -651,6 +651,7 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 	}
 	if gate := e.currentReviewGateForEvent(run.ID, stepName, status); gate != nil {
 		event.ReviewFilePath = &gate.RelPath
+		event.ReviewFileAbsPath = &gate.AbsPath
 		if gate.ValidationError != "" {
 			event.ReviewValidationError = &gate.ValidationError
 		}

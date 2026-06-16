@@ -170,8 +170,9 @@ type RespondResult struct {
 
 // ProcessReviewResult confirms the review handoff file was accepted.
 type ProcessReviewResult struct {
-	OK             bool    `json:"ok"`
-	ReviewFilePath *string `json:"review_file_path,omitempty"`
+	OK                bool    `json:"ok"`
+	ReviewFilePath    *string `json:"review_file_path,omitempty"`
+	ReviewFileAbsPath *string `json:"review_file_abs_path,omitempty"`
 }
 
 // CancelRunResult confirms the run cancellation request was accepted.
@@ -224,6 +225,7 @@ type StepResultInfo struct {
 	FixSummaries          []string `json:"fix_summaries,omitempty"`
 	ReviewPhaseLabel      *string  `json:"review_phase_label,omitempty"`
 	ReviewFilePath        *string  `json:"review_file_path,omitempty"`
+	ReviewFileAbsPath     *string  `json:"review_file_abs_path,omitempty"`
 	ReviewValidationError *string  `json:"review_validation_error,omitempty"`
 	Error                 *string  `json:"error,omitempty"`
 	StartedAt             *int64   `json:"started_at,omitempty"`
@@ -262,6 +264,7 @@ type Event struct {
 	FixSummaries          []string        `json:"fix_summaries,omitempty"`
 	ReviewPhaseLabel      *string         `json:"review_phase_label,omitempty"`
 	ReviewFilePath        *string         `json:"review_file_path,omitempty"`
+	ReviewFileAbsPath     *string         `json:"review_file_abs_path,omitempty"`
 	ReviewValidationError *string         `json:"review_validation_error,omitempty"`
 	DurationMS            *int64          `json:"duration_ms,omitempty"` // execution-only duration for step events
 	PRURL                 *string         `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events

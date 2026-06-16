@@ -16,14 +16,23 @@ func TestReviewFileGateViewReplacesLegacyApprovalControls(t *testing.T) {
 	configureTUIColors()
 	run := testRun()
 	run.Steps[0].Status = types.StepStatusAwaitingApproval
-	run.Steps[0].FindingsJSON = ptr(`{"findings":[{"id":"review-1","severity":"error","description":"bug"}],"summary":"1 issue"}`)
-	run.Steps[0].ReviewFilePath = ptr("review-issues-run-001.md")
+	run.Steps[0].FindingsJSON = ptr(`{"findings":[{"id":"review-1","severity":"error","description":"bug"},{"id":"review-2","severity":"warning","description":"warn one"},{"id":"review-3","severity":"warning","description":"warn two"}],"summary":"3 issues"}`)
+	run.Steps[0].ReviewFilePath = ptr(".no-mistakes/issues/test-02/review-issues-01KV8J0W.md")
+	run.Steps[0].ReviewFileAbsPath = ptr("/tmp/no-mistakes/worktrees/repo/run/.no-mistakes/issues/test-02/review-issues-01KV8J0W.md")
 	m := NewModel("", nil, run)
 	m.width = 80
 	m.height = 50
 
 	view := stripANSI(m.View())
-	for _, want := range []string{"Review awaiting review file:", "p process", "c cancel", "Review File", "File: review-issues-run-001.md"} {
+	for _, want := range []string{
+		"Review awaiting review file:",
+		"p process",
+		"c cancel",
+		"Review File",
+		"File: .no-mistakes/issues/test-02/review-issues-01KV8J0W.md",
+		"Location: /tmp/no-mistakes/worktrees/repo/run",
+		"Findings: (3) - E(1) - W(2)",
+	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected %q in review file gate view:\n%s", want, view)
 		}
