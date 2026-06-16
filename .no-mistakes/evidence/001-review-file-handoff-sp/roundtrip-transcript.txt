@@ -1,0 +1,32 @@
+=== no-mistakes review file handoff — end-to-end transcript ===
+run_id=01JZREVIEWHANDOFF01  branch=001-review-file-handoff-sp  status=awaiting_approval
+review_result_hash=sha256:ae7da4e22f72a1d50d0862416bad4beceb74020b6c0bcbadd3de65e047c24595
+
+[1] Gate wrote handoff file: review-issues-01JZREVI.md (1893 bytes)
+    Findings: 3 (error=1, warning=1, info=1)
+    Terminal shows only: summary + path + [p process] [c cancel]
+
+[2] User edited review-2 -> action: fix with a pasted ```go fence inside solution.
+    ValidateBytes: OK — parsed 3 response blocks, hash matched live gate.
+
+[3] Derived gate decision: fix
+    selected_finding_ids=[review-1 review-2]
+    instruction[review-1] (nested fence survived parse):
+      | Parse the NUL-delimited bytes verbatim with RunRaw and a column-aware porcelain parser.
+    instruction[review-2] (nested fence survived parse):
+      | Restrict the delimiter to a column-0 fence. Example:
+      | ```go
+      | if !fenceLine(lines[i], "```"+FenceLanguage) { continue }
+      | ```
+      | That keeps pasted code intact.
+
+[4] p process -> only metadata updated; user answers preserved.
+    processed_at: 2026-06-16T10:30:00Z   processed_action: fix
+    (this processed file is what gets committed to the PR branch for audit)
+
+[5] git.StatusChangedPaths on a live repo (modified + rename + spaced + non-ASCII):
+    - "README.md"
+    - "renamed.txt"
+    - "a new file.txt"
+    - "café.md"
+    README.md leading status byte preserved; rename source discarded; names verbatim.

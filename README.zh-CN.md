@@ -94,6 +94,8 @@ $ no-mistakes
 
 在 TUI 里你逐条处理 **finding**：**auto-fix** 类自动替你应用（或由你 approve 放行），**ask-user** 类需要你判断，由你 approve、fix 或 skip。每项检查变绿后，网关会把你的分支转发到上游并替你开好 PR —— 不用手动 `git push origin`，也不用手写 PR 正文。想让编码 agent 无人值守地走完同一套流程？用 `/no-mistakes`（见下文）。
 
+当 review 步骤需要你来判断时，no-mistakes 还会在 worktree 里写出一个 Markdown 评审交接文件，并在 TUI 与 AXI 输出中给出它的路径。编辑文件里的 response 块，在 TUI 里处理它，最终的审计文件会随 PR 分支一起提交。现有的 `approve`、`fix`、`skip` 自动化依旧可用；这些响应会在网关继续之前被镜像写入同一个审计文件。
+
 ## 触发网关的三种方式
 
 每一处改动都走同一条流水线。改动就绪时，挑一个最贴合你当下工作方式的入口：

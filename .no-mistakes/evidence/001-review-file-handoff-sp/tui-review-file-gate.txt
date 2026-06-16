@@ -1,0 +1,23 @@
+]2;⏸ Review - feature/foo╭─ Pipeline ─────────────────────────────────────────────────────────────────────────────╮
+│ feature/foo                                                                    running │
+│                                                                                        │
+│ ⏸ Review - awaiting approval                                                           │
+│ │                                                                                      │
+│ ○ Test                                                                                 │
+│ │                                                                                      │
+│ ○ Lint                                                                                 │
+│ │                                                                                      │
+│ ○ Push                                                                                 │
+│ │                                                                                      │
+│ ○ PR                                                                                   │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+
+Review awaiting review file:
+ p process  c cancel
+
+╭─ Review File ──────────────────────────────────────────────────────────────────────────╮
+│ File: specs/001-review-file-handoff/review-issues-01JZREVI.md                          │
+│ Findings: 3  E 1  W 1  I 1                                                             │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+
+  q detach  x abort  ? help  y yolo
