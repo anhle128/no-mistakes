@@ -32,9 +32,8 @@
 #   - multi_party          — spec coordinates ≥2 human roles with different authority
 #   - contracts            — spec defines an upstream/downstream interface contract
 #
-# Examples below are placeholders — replace the `lenses` list with lenses
-# calibrated for YOUR project's domain. Delete examples you don't need;
-# define at least 1 lens covering each trigger category your project cares about.
+# Lenses below should be calibrated for YOUR project's domain. Define at least
+# 1 lens covering each trigger category your project cares about.
 
 version: "v1"
 
