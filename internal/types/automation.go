@@ -86,6 +86,8 @@ func (s GateAutomationStatus) Valid() bool {
 	}
 }
 
+// DecisionSource distinguishes explicit user decisions from unattended
+// automation requests.
 type DecisionSource string
 
 const (
@@ -102,6 +104,7 @@ func (s DecisionSource) Valid() bool {
 	}
 }
 
+// ActorType identifies the class of actor that authorized a gate decision.
 type ActorType string
 
 const (
@@ -119,6 +122,8 @@ func (a ActorType) Valid() bool {
 	}
 }
 
+// ApprovalSurface identifies the client or subsystem that submitted a gate
+// decision.
 type ApprovalSurface string
 
 const (
@@ -142,6 +147,8 @@ func (s ApprovalSurface) Valid() bool {
 	}
 }
 
+// ConsentMode records the consent path used for a gate decision or automation
+// request.
 type ConsentMode string
 
 const (

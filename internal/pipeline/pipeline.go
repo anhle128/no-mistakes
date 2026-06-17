@@ -18,17 +18,17 @@ type StepContext struct {
 	Agent               agent.Agent
 	Config              *config.Config
 	DB                  *db.DB
-	Boundary            types.ExecutionBoundary
-	RefreshBoundary     func(action string) (types.ExecutionBoundary, error)
-	RequireSafeBoundary func(action string) error
-	Log                 func(string) // discrete log line (newline-terminated, user-visible + file)
-	LogChunk            func(string) // raw streaming chunk (user-visible + file)
-	LogFile             func(string) // file-only log callback (not shown to user)
-	Fixing              bool         // true when re-executing after a "fix" action
-	FixDecision         types.DecisionMetadata
-	AutomationGateID    string
-	AutomationGateFP    string
-	PreviousFindings    string // JSON findings from the previous execution (set during fix loop)
+	Boundary            types.ExecutionBoundary                              // latest boundary proof known to this step
+	RefreshBoundary     func(action string) (types.ExecutionBoundary, error) // recomputes and persists boundary proof
+	RequireSafeBoundary func(action string) error                            // fails closed unless refreshed proof is safe
+	Log                 func(string)                                         // discrete log line (newline-terminated, user-visible + file)
+	LogChunk            func(string)                                         // raw streaming chunk (user-visible + file)
+	LogFile             func(string)                                         // file-only log callback (not shown to user)
+	Fixing              bool                                                 // true when re-executing after a "fix" action
+	FixDecision         types.DecisionMetadata                               // authorization metadata for the current fix round
+	AutomationGateID    string                                               // stable identity for the gate currently eligible for automation
+	AutomationGateFP    string                                               // stable fingerprint for the gate currently eligible for automation
+	PreviousFindings    string                                               // JSON findings from the previous execution (set during fix loop)
 	// StepResultID is the DB row ID of the current step's step_results record.
 	// Steps use it to query their own round history for multi-round prompts.
 	StepResultID string

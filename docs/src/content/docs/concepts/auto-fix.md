@@ -30,6 +30,8 @@ flowchart TD
    - If issues remain, the step pauses for user approval
    - If everything passes, the step completes and the pipeline moves on
 
+Before an unattended auto-fix agent run, commit, yolo response, or AXI `--yes` response, no-mistakes refreshes the run's execution-boundary proof. If the boundary is unsafe or unknown, automation is withheld and the step pauses or fails closed instead of editing or advancing from the wrong checkout.
+
 Two steps apply fixes during their initial pass instead of relying on a follow-up automatic fix loop.
 When `commands.lint` is empty, the agent detects relevant linters and formatters, applies safe fixes, verifies them, and commits any changes during the initial lint pass.
 The document step finds documentation gaps, updates docs or doc comments for every gap it can resolve, verifies the edits, and commits any documentation changes during the initial document pass.

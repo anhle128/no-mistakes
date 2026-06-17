@@ -216,6 +216,7 @@ For empty `commands.lint`, the agent still attempts safe fixes during the initia
 Legacy alias: `auto_fix.babysit`.
 
 These are global defaults. Per-repo config can override individual steps.
+The limits only cap attempts; they do not bypass the execution-boundary guard. Unattended auto-fixes still require a fresh safe managed-worktree proof before the agent runs or commits changes.
 
 ### intent
 

@@ -108,6 +108,10 @@ type SubscribeParams struct {
 // AddedFindings carries user-authored findings that are merged into the round
 // alongside agent-produced ones. Both fields only apply when Action triggers
 // a fix round.
+//
+// Decision metadata identifies whether the response is explicit manual input
+// or unattended automation. Legacy callers can omit it; the daemon treats
+// missing metadata as a manual human decision from an unknown surface.
 type RespondParams struct {
 	RunID           string                `json:"run_id"`
 	Step            types.StepName        `json:"step"`
@@ -183,7 +187,9 @@ type ShutdownResult struct {
 
 // --- Wire types ---
 
-// RunInfo is the IPC representation of a pipeline run.
+// RunInfo is the IPC representation of a pipeline run. Boundary is always the
+// latest persisted execution-boundary proof, while GateAutomation describes the
+// current awaiting gate only when unattended automation has been requested.
 type RunInfo struct {
 	ID             string                  `json:"id"`
 	RepoID         string                  `json:"repo_id"`
@@ -235,7 +241,9 @@ const (
 	EventLogChunk      EventType = "log_chunk"
 )
 
-// Event is a real-time update sent to subscribers.
+// Event is a real-time update sent to subscribers. Boundary and GateAutomation
+// are included on updates that change the run's execution-boundary proof or
+// gate automation state.
 type Event struct {
 	Type             EventType                `json:"type"`
 	RunID            string                   `json:"run_id"`
