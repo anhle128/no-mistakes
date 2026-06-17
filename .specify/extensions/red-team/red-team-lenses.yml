@@ -1,0 +1,56 @@
+version: "v1"
+
+defaults:
+  finding_bound: 5
+  severity_weight: 5
+
+lenses:
+  - name: "Review Trust-Boundary Adversary"
+    description: "Attacks authority boundaries between users, automation, review agents, PR reviewers, and approval gates."
+    core_questions:
+      - "Where could an automated fix or report imply user approval that was never granted?"
+      - "Which finding decisions could be misattributed between user, automation, and agent-authored sources?"
+      - "Where could a later surface treat accepted, skipped, deferred, or informational findings as resolved fixes?"
+      - "Which workflow handoff could let a lower-authority actor override a higher-authority gate?"
+    trigger_match: [multi_party, contracts]
+    severity_weight: 8
+
+  - name: "Agent Contract Integrity Adversary"
+    description: "Attacks structured agent output, stored review state, and report extraction contracts for silent corruption or hallucinated certainty."
+    core_questions:
+      - "Where can missing or malformed structured review data still produce a confident report?"
+      - "Which stable headings, labels, or summary counts could drift and break future-agent extraction?"
+      - "Where does the spec depend on agent summaries that may omit material fix details?"
+      - "Which fields are too ambiguous to distinguish proposed fixes from applied fixes?"
+    trigger_match: [ai_llm, contracts]
+    severity_weight: 9
+
+  - name: "Partial Evidence Recovery Adversary"
+    description: "Attacks cancellation, supersession, regeneration, and incomplete final-review evidence paths."
+    core_questions:
+      - "Where can a failed, cancelled, or superseded run leave the report in a misleading final state?"
+      - "Which missing historical fields are not explicitly labeled as unavailable or not recorded?"
+      - "Where can regeneration from stored state diverge from live review events?"
+      - "Which latest-outcome labels are underspecified when trustworthy final evidence is absent?"
+    trigger_match: [immutability_audit, contracts]
+    severity_weight: 8
+
+  - name: "Privacy and Transcript Exposure Adversary"
+    description: "Attacks the boundary between safe report context and raw logs, transcripts, code excerpts, diff hunks, or secrets."
+    core_questions:
+      - "Which report fields could accidentally include raw transcript, raw log, secret-bearing, code, or diff-hunk content?"
+      - "Where does the spec allow safe context without defining the sanitization or source boundary?"
+      - "Which PR, AXI, or TUI surface might duplicate sensitive report detail instead of referencing it?"
+      - "Where could user intent summaries expose unsafe or unavailable transcript-derived data?"
+    trigger_match: [ai_llm, regulatory_path, contracts]
+    severity_weight: 7
+
+  - name: "User Surface Misrepresentation Adversary"
+    description: "Attacks AXI, TUI, PR, and documentation surfaces for labels or summaries that can mislead users about review status."
+    core_questions:
+      - "Where could success output hide that review fixes occurred or unresolved findings remain?"
+      - "Which labels can be confused by users because internal concepts leak into user-facing text?"
+      - "Where can summary counts disagree across report, run metadata, TUI, AXI, and PR summaries?"
+      - "Which surfaces are required to expose the report reference but lack precise timing or conditions?"
+    trigger_match: [multi_party, contracts]
+    severity_weight: 8

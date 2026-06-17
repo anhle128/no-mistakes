@@ -199,6 +199,72 @@ func TestRenderDriveResult_ChecksPassed(t *testing.T) {
 	}
 }
 
+func TestRenderDriveResult_ChecksPassedIncludesReviewResolutionReport(t *testing.T) {
+	run := &ipc.RunInfo{
+		ID:      "run-1",
+		Branch:  "feature/x",
+		Status:  types.RunRunning,
+		HeadSHA: "abcdef1234567890",
+		PRURL:   strptr("https://github.com/user/repo/pull/42"),
+		ReviewResolutionReport: &ipc.ReviewResolutionReportInfo{
+			Path:          "/tmp/no-mistakes/reports/run-1/review-resolution.md",
+			Status:        "current",
+			LatestOutcome: "no issues remain",
+		},
+		Steps: []ipc.StepResultInfo{
+			{StepName: types.StepCI, Status: types.StepStatusRunning},
+		},
+	}
+
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+
+	if err := renderDriveResult(cmd, run, true); err != nil {
+		t.Fatalf("checks-passed must exit 0, got error: %v", err)
+	}
+
+	got := out.String()
+	for _, want := range []string{
+		"review_resolution_report:",
+		"latest_outcome: no issues remain",
+		"Review the durable review-resolution report at /tmp/no-mistakes/reports/run-1/review-resolution.md",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("checks-passed output missing report reference %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderDriveResult_ChecksPassedWithUnavailableReportDoesNotInventPath(t *testing.T) {
+	run := &ipc.RunInfo{
+		ID:      "run-1",
+		Branch:  "feature/x",
+		Status:  types.RunRunning,
+		HeadSHA: "abcdef1234567890",
+		ReviewResolutionReport: &ipc.ReviewResolutionReportInfo{
+			Status:        "unavailable",
+			LatestOutcome: "final findings unavailable",
+		},
+	}
+
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+
+	if err := renderDriveResult(cmd, run, true); err != nil {
+		t.Fatalf("checks-passed must exit 0, got error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "review_resolution_report:") {
+		t.Fatalf("checks-passed output missing report metadata in:\n%s", got)
+	}
+	if strings.Contains(got, "Review the durable review-resolution report at unavailable") {
+		t.Fatalf("checks-passed output invented unavailable report path in:\n%s", got)
+	}
+}
+
 func TestRenderDriveResult_ChecksPassedWithFixes(t *testing.T) {
 	run := &ipc.RunInfo{
 		ID:      "run-1",

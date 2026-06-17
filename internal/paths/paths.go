@@ -55,6 +55,14 @@ func (p *Paths) RunLogDir(runID string) string {
 func (p *Paths) DaemonLog() string { return filepath.Join(p.root, "logs", "daemon.log") }
 func (p *Paths) CLILog() string    { return filepath.Join(p.root, "logs", "cli.log") }
 
+func (p *Paths) ReportsDir() string { return filepath.Join(p.root, "reports") }
+func (p *Paths) RunReportDir(runID string) string {
+	return filepath.Join(p.root, "reports", runID)
+}
+func (p *Paths) RunReviewResolutionReportPath(runID string) string {
+	return filepath.Join(p.RunReportDir(runID), "review-resolution.md")
+}
+
 // ServerPIDsDir holds PID-tracking files for managed agent servers
 // (opencode, rovodev) so a freshly started daemon can reap orphans left
 // behind by a crashed predecessor.
@@ -67,6 +75,7 @@ func (p *Paths) EnsureDirs() error {
 		p.ReposDir(),
 		p.WorktreesDir(),
 		p.LogsDir(),
+		p.ReportsDir(),
 		p.ServerPIDsDir(),
 	}
 	for _, d := range dirs {

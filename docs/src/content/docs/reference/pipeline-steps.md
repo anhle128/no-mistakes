@@ -66,6 +66,12 @@ AI code review of your diff.
 
 **Auto-fix:** the agent receives the selected previous findings plus any per-finding user notes, any selected user-authored findings from the TUI or AXI interface, and a sanitized history of prior rounds for that step, including earlier fix summaries and which findings the user left unselected. Follow-up review passes use that history to avoid re-reporting user-ignored findings unless the code now has a materially different problem. Fix commits use `no-mistakes(review): <summary>`.
 
+**Review-resolution report:** when review produces findings, enters a fix cycle, pauses for approval, or reaches a no-reviewable-changes outcome, no-mistakes writes one run-scoped Markdown report at `$NM_HOME/reports/<runID>/review-resolution.md` and stores compact metadata with the run. The report records the original review findings, selected resolution decisions, fix attempts, applied fix summaries, latest trustworthy review outcome, remaining risks, and source evidence. It is a reporting layer only; it does not change review, approval, auto-fix, push, PR, or CI behavior.
+
+The report uses stable labels including `Issue`, `Recommendation`, `Selected for fix`, `Applied fix`, `Still open`, `Accepted`, `Skipped`, and `Risk`. `Accepted` is reserved for explicit stored human risk-acceptance evidence; generic approval, skip, or missing historical selection data is not treated as accepted risk. Older partial data is labeled `not recorded` or `unavailable`, and unreadable or inconsistent final evidence fails closed instead of claiming that no issues remain.
+
+The TUI pipeline view shows the report path/reference, status (`current`, `stale`, `unavailable`, or `error`), latest outcome, and compact counts when report metadata exists. Full finding context, user instructions, raw fix-summary chains, logs, transcripts, diffs, and code excerpts stay out of the TUI metadata path and belong only in the sanitized Markdown report.
+
 **Default auto-fix limit:** `0`.
 
 ## Test

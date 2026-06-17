@@ -16,6 +16,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -146,6 +147,7 @@ func (e *Executor) Execute(ctx context.Context, run *db.Run, repo *db.Repo, work
 			if err := e.db.CompleteStepWithStatus(sr.ID, types.StepStatusSkipped, 0, 0, ""); err != nil {
 				return e.failRun(run, repo, fmt.Errorf("skip step %s: %w", step.Name(), err), ctx)
 			}
+			e.refreshReviewResolutionReport(run.ID, step.Name())
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, step.Name(), string(types.StepStatusSkipped), "", "", "", nil)
 			continue
 		}
@@ -160,6 +162,7 @@ func (e *Executor) Execute(ctx context.Context, run *db.Run, repo *db.Repo, work
 				if dbErr := e.db.CompleteStepWithStatus(rsr.ID, types.StepStatusSkipped, 0, 0, ""); dbErr != nil {
 					slog.Warn("failed to finalize skipped step", "step", remaining.Name(), "error", dbErr)
 				}
+				e.refreshReviewResolutionReport(run.ID, remaining.Name())
 				e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, remaining.Name(), string(types.StepStatusSkipped), "", "", "", nil)
 			}
 			break
@@ -171,6 +174,7 @@ func (e *Executor) Execute(ctx context.Context, run *db.Run, repo *db.Repo, work
 		return fmt.Errorf("update run status: %w", err)
 	}
 	run.Status = types.RunCompleted
+	e.refreshRunReviewResolutionReport(run.ID)
 	e.emitRunEvent(ipc.EventRunCompleted, run, repo)
 	return nil
 }
@@ -269,6 +273,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			if dbErr := e.db.FailStep(sr.ID, err.Error(), durationMS); dbErr != nil {
 				slog.Warn("failed to mark step as failed in db", "step", stepName, "error", dbErr)
 			}
+			e.refreshReviewResolutionReport(run.ID, stepName)
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFailed), "", "", err.Error(), &durationMS)
 			return false, fmt.Errorf("step %s failed: %w", stepName, err)
 		}
@@ -302,6 +307,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			slog.Warn("failed to insert step round", "step", stepName, "round", roundNum, "error", dbErr)
 		} else {
 			currentRoundID = roundInsertID(currentRoundID, inserted, nil)
+			e.refreshReviewResolutionReport(run.ID, stepName)
 		}
 
 		// If the step produced a PR URL, propagate it to the run and emit an update.
@@ -329,6 +335,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 						if dbErr := e.db.SetStepRoundSelection(currentRoundID, &idsJSON, db.RoundSelectionSourceAutoFix); dbErr != nil {
 							slog.Warn("failed to record selected finding ids", "step", stepName, "round", roundNum, "error", dbErr)
 						}
+						e.refreshReviewResolutionReport(run.ID, stepName)
 					}
 				}
 				e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFixing), "", "", "", nil)
@@ -377,6 +384,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 		if dbErr := e.db.UpdateStepStatusWithDuration(sr.ID, approvalStatus, executionMS); dbErr != nil {
 			slog.Warn("failed to update step status and duration in db", "step", stepName, "status", approvalStatus, "error", dbErr)
 		}
+		e.refreshReviewResolutionReport(run.ID, stepName)
 		e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(approvalStatus), outcome.Findings, diffText, "", &executionMS)
 
 		response, err := e.waitForApproval(ctx, stepName)
@@ -384,6 +392,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			if dbErr := e.db.FailStep(sr.ID, err.Error(), executionMS); dbErr != nil {
 				slog.Warn("failed to mark step as failed in db", "step", stepName, "error", dbErr)
 			}
+			e.refreshReviewResolutionReport(run.ID, stepName)
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFailed), "", "", err.Error(), &executionMS)
 			return false, fmt.Errorf("step %s: waiting for approval: %w", stepName, err)
 		}
@@ -413,6 +422,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			if err := e.db.CompleteStepWithStatus(sr.ID, types.StepStatusSkipped, finalExitCode, executionMS, logPath); err != nil {
 				return false, fmt.Errorf("complete step %s (skip): %w", stepName, err)
 			}
+			e.refreshReviewResolutionReport(run.ID, stepName)
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusSkipped), "", "", "", &executionMS)
 			return false, nil
 
@@ -420,6 +430,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			if dbErr := e.db.FailStep(sr.ID, "aborted by user", executionMS); dbErr != nil {
 				slog.Warn("failed to mark step as failed in db", "step", stepName, "error", dbErr)
 			}
+			e.refreshReviewResolutionReport(run.ID, stepName)
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFailed), "", "", "aborted by user", &executionMS)
 			return false, fmt.Errorf("step %s: aborted by user", stepName)
 
@@ -448,6 +459,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 						slog.Warn("failed to record user findings", "step", stepName, "round", roundNum, "error", dbErr)
 					}
 				}
+				e.refreshReviewResolutionReport(run.ID, stepName)
 			}
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFixing), "", "", "", nil)
 			slog.Info("step fix requested, re-executing", "step", stepName)
@@ -468,6 +480,7 @@ done:
 	if err := e.db.CompleteStepWithStatus(sr.ID, status, finalExitCode, durationMS, logPath); err != nil {
 		return false, fmt.Errorf("complete step %s: %w", stepName, err)
 	}
+	e.refreshReviewResolutionReport(run.ID, stepName)
 	e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(status), "", "", "", &durationMS)
 	return skipRemaining, nil
 }
@@ -522,6 +535,7 @@ func (e *Executor) failRun(run *db.Run, repo *db.Repo, err error, ctxs ...contex
 	}
 	run.Status = runStatus
 	run.Error = &errMsg
+	e.refreshRunReviewResolutionReport(run.ID)
 	e.emitRunEvent(ipc.EventRunCompleted, run, repo)
 	return err
 }
@@ -538,6 +552,9 @@ func (e *Executor) emitRunEvent(eventType ipc.EventType, run *db.Run, repo *db.R
 		Branch: &run.Branch,
 		Error:  run.Error,
 		PRURL:  run.PRURL,
+	}
+	if report := e.reviewResolutionReportInfo(run.ID); report != nil {
+		event.ReviewResolutionReport = report
 	}
 	e.onEvent(event)
 }
@@ -562,6 +579,9 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 		StepName:   &stepName,
 		Status:     &status,
 		DurationMS: durationMS,
+	}
+	if stepName == types.StepReview {
+		event.ReviewResolutionReport = e.reviewResolutionReportInfo(run.ID)
 	}
 	stats := e.findingStatsForStep(run.ID, stepName)
 	if stats.ReportedFindings > 0 || stats.FixedFindings > 0 {
@@ -635,9 +655,20 @@ func (e *Executor) fixSummariesForStep(runID string, stepName types.StepName) []
 		if err != nil {
 			return nil
 		}
-		return summaries
+		return sanitizeFixSummaries(summaries)
 	}
 	return nil
+}
+
+func sanitizeFixSummaries(summaries []string) []string {
+	if len(summaries) == 0 {
+		return nil
+	}
+	clean := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		clean = append(clean, reviewreport.SanitizeAppliedFixSummary(summary))
+	}
+	return clean
 }
 
 func shouldTrackStepTelemetry(eventType ipc.EventType, status string) bool {

@@ -179,17 +179,18 @@ type ShutdownResult struct {
 
 // RunInfo is the IPC representation of a pipeline run.
 type RunInfo struct {
-	ID        string           `json:"id"`
-	RepoID    string           `json:"repo_id"`
-	Branch    string           `json:"branch"`
-	HeadSHA   string           `json:"head_sha"`
-	BaseSHA   string           `json:"base_sha"`
-	Status    types.RunStatus  `json:"status"`
-	PRURL     *string          `json:"pr_url,omitempty"`
-	Error     *string          `json:"error,omitempty"`
-	Steps     []StepResultInfo `json:"steps,omitempty"`
-	CreatedAt int64            `json:"created_at"`
-	UpdatedAt int64            `json:"updated_at"`
+	ID                     string                      `json:"id"`
+	RepoID                 string                      `json:"repo_id"`
+	Branch                 string                      `json:"branch"`
+	HeadSHA                string                      `json:"head_sha"`
+	BaseSHA                string                      `json:"base_sha"`
+	Status                 types.RunStatus             `json:"status"`
+	PRURL                  *string                     `json:"pr_url,omitempty"`
+	Error                  *string                     `json:"error,omitempty"`
+	Steps                  []StepResultInfo            `json:"steps,omitempty"`
+	ReviewResolutionReport *ReviewResolutionReportInfo `json:"review_resolution_report,omitempty"`
+	CreatedAt              int64                       `json:"created_at"`
+	UpdatedAt              int64                       `json:"updated_at"`
 }
 
 // StepResultInfo is the IPC representation of a step result.
@@ -229,22 +230,36 @@ const (
 
 // Event is a real-time update sent to subscribers.
 type Event struct {
-	Type             EventType       `json:"type"`
-	RunID            string          `json:"run_id"`
-	RepoID           string          `json:"repo_id"`
-	StepName         *types.StepName `json:"step_name,omitempty"`
-	Status           *string         `json:"status,omitempty"`
-	Error            *string         `json:"error,omitempty"`
-	Stream           *string         `json:"stream,omitempty"`
-	Content          *string         `json:"content,omitempty"`
-	Branch           *string         `json:"branch,omitempty"`
-	Findings         *string         `json:"findings,omitempty"` // JSON-encoded findings for step_completed events
-	Diff             *string         `json:"diff,omitempty"`     // unified diff for fix_review events
-	ReportedFindings *int            `json:"reported_findings,omitempty"`
-	FixedFindings    *int            `json:"fixed_findings,omitempty"`
-	FixSummaries     []string        `json:"fix_summaries,omitempty"`
-	DurationMS       *int64          `json:"duration_ms,omitempty"` // execution-only duration for step events
-	PRURL            *string         `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events
+	Type                   EventType                   `json:"type"`
+	RunID                  string                      `json:"run_id"`
+	RepoID                 string                      `json:"repo_id"`
+	StepName               *types.StepName             `json:"step_name,omitempty"`
+	Status                 *string                     `json:"status,omitempty"`
+	Error                  *string                     `json:"error,omitempty"`
+	Stream                 *string                     `json:"stream,omitempty"`
+	Content                *string                     `json:"content,omitempty"`
+	Branch                 *string                     `json:"branch,omitempty"`
+	Findings               *string                     `json:"findings,omitempty"` // JSON-encoded findings for step_completed events
+	Diff                   *string                     `json:"diff,omitempty"`     // unified diff for fix_review events
+	ReportedFindings       *int                        `json:"reported_findings,omitempty"`
+	FixedFindings          *int                        `json:"fixed_findings,omitempty"`
+	FixSummaries           []string                    `json:"fix_summaries,omitempty"`
+	ReviewResolutionReport *ReviewResolutionReportInfo `json:"review_resolution_report,omitempty"`
+	DurationMS             *int64                      `json:"duration_ms,omitempty"` // execution-only duration for step events
+	PRURL                  *string                     `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events
+}
+
+// ReviewResolutionReportInfo is the compact run-scoped report metadata exposed
+// over IPC. The full Markdown report body is not carried on this path.
+type ReviewResolutionReportInfo struct {
+	Path          string         `json:"path,omitempty"`
+	Status        string         `json:"status"`
+	LatestOutcome string         `json:"latest_outcome"`
+	SummaryCounts map[string]int `json:"summary_counts,omitempty"`
+	UpdatedAt     int64          `json:"updated_at,omitempty"`
+	GeneratedAt   int64          `json:"generated_at,omitempty"`
+	Stale         bool           `json:"stale,omitempty"`
+	Error         string         `json:"error,omitempty"`
 }
 
 // --- Helpers ---

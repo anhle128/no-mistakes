@@ -79,6 +79,8 @@ Step status icons:
 Completed steps show their duration.
 Steps with fixed findings, and steps currently fixing reported findings, show a right-aligned count such as `2/3 fixed` or `0/3 fixed`.
 The first number counts completed fixes, not findings selected for an in-progress fix.
+When review findings or fixes have a durable review-resolution report, the pipeline box also shows the report path, latest review outcome, status, and compact counts such as `selected_for_fix`, `fix_attempts`, `still_open`, and `decision_not_recorded`.
+If the report could not be refreshed, the TUI keeps the last safe reference visible and marks the report as stale or unavailable instead of duplicating raw logs, diffs, or transcript content.
 Connectors (`│`) between steps are hidden when the terminal height is under 30 lines.
 
 ### Findings panel

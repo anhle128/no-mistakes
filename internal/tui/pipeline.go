@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -186,6 +187,12 @@ func renderPipelineView(run *ipc.RunInfo, steps []ipc.StepResultInfo, width int,
 		}
 	}
 
+	if report := renderReviewResolutionReportInfo(run.ReviewResolutionReport, contentWidth); report != "" {
+		b.WriteString("\n")
+		b.WriteString(report)
+		b.WriteString("\n")
+	}
+
 	// Run error, truncated to fit inside the box.
 	if run.Error != nil {
 		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiRed))
@@ -194,6 +201,51 @@ func renderPipelineView(run *ipc.RunInfo, steps []ipc.StepResultInfo, width int,
 		b.WriteString("\n" + errStyle.Render(errText) + "\n")
 	}
 	return renderBox("Pipeline", b.String(), boxWidth)
+}
+
+func renderReviewResolutionReportInfo(report *ipc.ReviewResolutionReportInfo, width int) string {
+	if report == nil {
+		return ""
+	}
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiBrightBlack))
+	path := report.Path
+	if strings.TrimSpace(path) == "" {
+		path = reviewreport.ValueUnavailable
+	}
+	status := report.Status
+	if strings.TrimSpace(status) == "" {
+		status = reviewreport.ValueUnavailable
+	}
+	outcome := report.LatestOutcome
+	if strings.TrimSpace(outcome) == "" {
+		outcome = reviewreport.ValueUnavailable
+	}
+	lines := []string{
+		fmt.Sprintf("Review report: %s", path),
+		fmt.Sprintf("Review outcome: %s (%s)", outcome, status),
+	}
+	if len(report.SummaryCounts) > 0 {
+		compact := reviewreport.CompactSummaryCountsFromMap(report.SummaryCounts)
+		lines = append(lines, fmt.Sprintf(
+			"Review counts: selected_for_fix=%d fix_attempts=%d still_open=%d decision_not_recorded=%d",
+			compact.SelectedForFix,
+			compact.FixAttempts,
+			compact.StillOpen,
+			compact.DecisionNotRecorded,
+		))
+	}
+	if report.Stale || strings.TrimSpace(report.Error) != "" {
+		warning := "Review report warning: stale"
+		if strings.TrimSpace(report.Error) != "" {
+			warning = "Review report warning: " + report.Error
+		}
+		lines = append(lines, warning)
+	}
+	for i, line := range lines {
+		lines[i], _ = cutText(line, width)
+		lines[i] = dimStyle.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
 }
 
 func appendRightLabel(line, label string, width int) string {
@@ -239,11 +291,7 @@ func latestFixSummary(summaries []string) string {
 	if len(summaries) == 0 {
 		return ""
 	}
-	summary := strings.Join(strings.Fields(summaries[len(summaries)-1]), " ")
-	if summary == "" {
-		return "fix applied (no summary recorded)"
-	}
-	return summary
+	return reviewreport.SanitizeAppliedFixSummary(summaries[len(summaries)-1])
 }
 
 func renderApprovalActions(showSelectionActions bool, allowFix bool, showDiff bool, selectedCount int, totalCount int, confirmAbort bool, hasDiff bool) string {

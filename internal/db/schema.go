@@ -58,6 +58,25 @@ CREATE TABLE IF NOT EXISTS intent_cache (
     session_id  TEXT NOT NULL,
     created_at  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS review_resolution_reports (
+    run_id                 TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    report_path            TEXT,
+    status                 TEXT NOT NULL,
+    contract_version       TEXT NOT NULL,
+    latest_outcome         TEXT NOT NULL,
+    summary_counts_json    TEXT NOT NULL,
+    generation_mode        TEXT NOT NULL,
+    source_snapshot_at     INTEGER NOT NULL,
+    source_step_result_id  TEXT,
+    source_round_ids_json  TEXT NOT NULL,
+    latest_review_round_id TEXT,
+    latest_fix_round_id    TEXT,
+    generated_at           INTEGER,
+    updated_at             INTEGER NOT NULL,
+    stale                  INTEGER NOT NULL DEFAULT 0,
+    safe_error             TEXT
+);
 `
 
 // migrationStatements hold additive schema changes applied to databases that
