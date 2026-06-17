@@ -1,5 +1,25 @@
 # Gotchas
 
+## 2026-06-17 - Do not re-ask decisions preserved from existing behavior
+
+What happened: In a `grill-me` session for `--no-worktree --yolo`, I asked whether the mode should reject the default branch even though `axi run` already has `preflightGuard` logic that refuses the default branch.
+
+Why it went wrong: I treated an existing invariant as a new product decision. The user had already said old logic should remain unless the new mode requires a change.
+
+Rule: For source-backed design grilling, separate "unchanged existing behavior" from "new behavior introduced by the proposal". Do not ask the user to reconfirm unchanged behavior that the code already establishes; state it as inherited behavior and move on.
+
+Relevant context: `internal/cli/axi_drive.go`, `skills/no-mistakes/SKILL.md`.
+
+## 2026-06-17 - Distinguish user-created worktrees from no-mistakes worktrees
+
+What happened: During the `--no-worktree --yolo` design grill, I described the target as running directly in the "Archon project directory". The user clarified that Archon itself creates a git worktree; the target is the current Archon-created worktree, not the parent/project manager concept.
+
+Why it went wrong: I collapsed "current working directory" and "project checkout" into one idea, while the core request was specifically to avoid creating a second nested/duplicate no-mistakes worktree when the caller is already inside a worktree created by another tool.
+
+Rule: For worktree-related features, name ownership explicitly: "user/tool-created current worktree" versus "no-mistakes isolated worktree". `--no-worktree` should mean "do not create an additional no-mistakes worktree; execute in the current git worktree root."
+
+Relevant context: `internal/daemon/manager.go`, `internal/git/git.go`, `internal/cli/axi_drive.go`.
+
 ## 2026-06-14 - Trace user-visible data end to end
 
 What happened: I treated the review `suggested_fix` fields as proof that the UI showed the solution, but the user was asking about the post-fix `Review - review fix:` screen. The live TUI showed the original finding details but did not surface the applied fix summary after the agent ran.
