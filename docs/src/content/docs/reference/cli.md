@@ -81,6 +81,7 @@ When the CI step is still monitoring an open PR and checks are green, `axi run` 
 Treat that as the agent stopping point: ask the user to review and merge the PR from the `help` line.
 Successful outcomes (`checks-passed` and `passed`) also carry `help` instructions telling the agent to summarize the run.
 When the pipeline applied fixes, they include a `fixes` table and a `help` instruction to acknowledge the misses and list those fixes for the user's review.
+When review-resolution metadata exists, AXI surfaces include or reference the durable review-resolution report instead of duplicating the full body. The report is stored at `$NM_HOME/reports/<runID>/review-resolution.md` and the compact metadata exposes only the report path, status, latest outcome, summary counts, timestamp, stale/error state, and safe error text.
 
 ## no-mistakes axi respond
 
@@ -105,6 +106,7 @@ no-mistakes axi respond --action skip
 After the explicit response, `--yes` uses the same auto-resolution behavior as `axi run --yes`: have the pipeline fix `auto-fix` and `ask-user` findings once, approve the fix review, approve gates that only contain non-actionable `no-op` findings, and stop at `outcome: checks-passed` when CI is green but the PR still needs a human merge.
 The same boundary rule applies after the explicit response: if subsequent unattended automation is withheld, inspect `automation.reason`, `automation.message`, and `automation.recovery_options` and leave the gate for manual user direction.
 The same successful-output reporting instructions apply to `axi respond` results.
+If a response causes review fixes or changes the review-resolution state, subsequent AXI output can reference the same run-scoped review-resolution report and its latest outcome.
 
 ## no-mistakes axi status
 
@@ -119,7 +121,7 @@ no-mistakes axi status --run <id>
 |---|---|---|---|
 | `--run` | `string` | active or most recent | Inspect a specific run ID |
 
-Status output includes the run's boundary state and, when a gate has withheld or allowed unattended automation, the gate automation fields.
+Status output includes the run's boundary state and, when a gate has withheld or allowed unattended automation, the gate automation fields. When the inspected run has review-resolution metadata, status output also includes the durable report reference, report status (`current`, `stale`, `unavailable`, or `error`), latest review outcome, and stable summary counts. Missing older fields are reported as `not recorded` or `unavailable` rather than inferred.
 
 ## no-mistakes axi logs
 

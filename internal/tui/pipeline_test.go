@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/muesli/termenv"
 )
@@ -273,6 +274,50 @@ func TestRenderPipelineView_FixingStatusOmitsAgentFixingLabel(t *testing.T) {
 	}
 }
 
+func TestRenderPipelineView_ShowsReviewResolutionReportReference(t *testing.T) {
+	run := testRun()
+	run.ReviewResolutionReport = &ipc.ReviewResolutionReportInfo{
+		Path:          "/tmp/nm/reports/run-001/review-resolution.md",
+		Status:        "current",
+		LatestOutcome: "no issues remain",
+		SummaryCounts: map[string]int{
+			"selected_for_fix":      1,
+			"fix_attempts":          1,
+			"still_open":            0,
+			"decision_not_recorded": 0,
+		},
+	}
+
+	out := stripANSI(renderPipelineView(run, run.Steps, 100, 0, 40))
+	if !strings.Contains(out, "Review report: /tmp/nm/reports/run-001/review-resolution.md") {
+		t.Fatalf("expected report path in pipeline view, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Review outcome: no issues remain (current)") {
+		t.Fatalf("expected latest outcome/status in pipeline view, got:\n%s", out)
+	}
+	if !strings.Contains(out, "selected_for_fix=1") || !strings.Contains(out, "fix_attempts=1") {
+		t.Fatalf("expected summary counts in pipeline view, got:\n%s", out)
+	}
+	if strings.Contains(out, "Applied fix") {
+		t.Fatalf("pipeline view must not duplicate full report content, got:\n%s", out)
+	}
+}
+
+func TestRenderPipelineView_ShowsReviewResolutionReportWarning(t *testing.T) {
+	run := testRun()
+	run.ReviewResolutionReport = &ipc.ReviewResolutionReportInfo{
+		Status:        "stale",
+		LatestOutcome: "review resolution incomplete",
+		Stale:         true,
+		Error:         "newer review evidence exists",
+	}
+
+	out := stripANSI(renderPipelineView(run, run.Steps, 80, 0, 40))
+	if !strings.Contains(out, "Review report warning: newer review evidence exists") {
+		t.Fatalf("expected stale report warning, got:\n%s", out)
+	}
+}
+
 func TestRenderApprovalActions_FormatWithSeparator(t *testing.T) {
 	out := stripANSI(renderApprovalActions(true, true, false, 5, 5, false, true))
 	// Keys should not be bracket-wrapped - design uses "a approve" not "[a] approve".
@@ -420,6 +465,56 @@ func TestModel_ApplyEvent_StepCompleted_StoresFixSummaries(t *testing.T) {
 
 	if len(m.steps[0].FixSummaries) != 1 || m.steps[0].FixSummaries[0] != "remove unsafe fallback" {
 		t.Fatalf("expected fix summary to be stored, got %v", m.steps[0].FixSummaries)
+	}
+}
+
+func TestModel_ApplyEvent_StepCompleted_SanitizesUnsafeFixSummaries(t *testing.T) {
+	run := testRun()
+	m := NewModel("/tmp/sock", nil, run)
+
+	m.applyEvent(ipc.Event{
+		Type:         ipc.EventStepCompleted,
+		RunID:        run.ID,
+		StepName:     ptr(types.StepReview),
+		Status:       ptr(string(types.StepStatusFixReview)),
+		FixSummaries: []string{`cache[key]`},
+	})
+
+	if len(m.steps[0].FixSummaries) != 1 || m.steps[0].FixSummaries[0] != reviewreport.AppliedFixSummaryDisplayOmitted {
+		t.Fatalf("expected sanitized fix summary to be stored, got %v", m.steps[0].FixSummaries)
+	}
+	if strings.Contains(strings.Join(m.steps[0].FixSummaries, " "), "cache[key]") {
+		t.Fatalf("unsafe fix summary leaked: %v", m.steps[0].FixSummaries)
+	}
+}
+
+func TestModel_ApplyEvent_StoresReviewResolutionReport(t *testing.T) {
+	run := testRun()
+	m := NewModel("/tmp/sock", nil, run)
+	report := &ipc.ReviewResolutionReportInfo{
+		Path:          "/tmp/report.md",
+		Status:        "current",
+		LatestOutcome: "no issues remain",
+		SummaryCounts: map[string]int{"selected_for_fix": 1},
+	}
+
+	m.applyEvent(ipc.Event{
+		Type:                   ipc.EventStepCompleted,
+		RunID:                  run.ID,
+		StepName:               ptr(types.StepReview),
+		Status:                 ptr(string(types.StepStatusCompleted)),
+		ReviewResolutionReport: report,
+	})
+
+	if m.run.ReviewResolutionReport == nil {
+		t.Fatal("expected report metadata on run")
+	}
+	if m.run.ReviewResolutionReport.Path != "/tmp/report.md" {
+		t.Fatalf("report metadata = %+v", m.run.ReviewResolutionReport)
+	}
+	report.SummaryCounts["selected_for_fix"] = 9
+	if m.run.ReviewResolutionReport.SummaryCounts["selected_for_fix"] != 1 {
+		t.Fatalf("expected summary counts to be copied, got %+v", m.run.ReviewResolutionReport.SummaryCounts)
 	}
 }
 

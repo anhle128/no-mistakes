@@ -172,6 +172,109 @@ func TestBuildPipelineSummary_RebaseWithConflicts(t *testing.T) {
 	}
 }
 
+func TestBuildPipelineSummaryWithReviewReportReference(t *testing.T) {
+	t.Parallel()
+	initial := `{"findings":[{"id":"review-1","severity":"warning","file":"internal/foo.go","description":"nil pointer"}],"summary":"1 issue"}`
+	final := `{"findings":[],"summary":"clean"}`
+	fixSummary := "handle nil pointer in executor"
+	reportPath := "/tmp/no-mistakes/reports/run-1/review-resolution.md"
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepReview, Status: types.StepStatusCompleted, FindingsJSON: &final},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {
+			{Round: 1, Trigger: "initial", FindingsJSON: &initial, DurationMS: 100},
+			{Round: 2, Trigger: "auto_fix", FindingsJSON: &final, FixSummary: &fixSummary, DurationMS: 200},
+		},
+	}
+	report := &db.ReviewResolutionReportMetadata{
+		ReportPath:        &reportPath,
+		Status:            "current",
+		LatestOutcome:     "no issues remain",
+		SummaryCountsJSON: `{"selected_for_fix":1,"fix_attempts":1,"applied_fix_summaries":1,"still_open":0,"decision_not_recorded":0}`,
+	}
+
+	md, _ := BuildPipelineSummaryWithReviewReport(steps, rounds, report)
+
+	for _, want := range []string{
+		"**Review resolution report:** <code>/tmp/no-mistakes/reports/run-1/review-resolution.md</code> (status: current, latest outcome: no issues remain)",
+		"- Counts: selected_for_fix=1, fix_attempts=1, applied_fix_summaries=1, still_open=0, decision_not_recorded=0",
+		"- Applied fix: handle nil pointer in executor",
+		"<summary>🔧 **Review** - 1 issue found → auto-fixed ✅</summary>",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("pipeline summary missing %q in:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "Original findings") || strings.Contains(md, "diff --git") {
+		t.Fatalf("pipeline summary must not embed raw report body or diffs:\n%s", md)
+	}
+}
+
+func TestBuildPipelineSummaryWithReviewFixesWithoutReport(t *testing.T) {
+	t.Parallel()
+	initial := `{"findings":[{"id":"review-1","severity":"warning","description":"issue"}]}`
+	final := `{"findings":[]}`
+	fixSummary := ""
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepReview, Status: types.StepStatusCompleted, FindingsJSON: &final},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {
+			{Round: 1, Trigger: "initial", FindingsJSON: &initial},
+			{Round: 2, Trigger: "auto_fix", FindingsJSON: &final, FixSummary: &fixSummary},
+		},
+	}
+
+	md, _ := BuildPipelineSummaryWithReviewReport(steps, rounds, nil)
+
+	for _, want := range []string{
+		"**Review resolution report:** <code>not recorded</code> (status: unavailable, latest outcome: unavailable)",
+		"- Applied fix summaries omitted: 1",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("pipeline summary missing %q in:\n%s", want, md)
+		}
+	}
+}
+
+func TestBuildPipelineSummaryWithReviewReportOmitsUnsafeFixSummary(t *testing.T) {
+	t.Parallel()
+	initial := `{"findings":[{"id":"review-1","severity":"warning","description":"issue"}]}`
+	final := `{"findings":[]}`
+	unsafeSummary := "diff --git a/secret.go b/secret.go\n+password=secret"
+	reportPath := "/tmp/no-mistakes/reports/run-1/review-resolution.md"
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepReview, Status: types.StepStatusCompleted, FindingsJSON: &final},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {
+			{Round: 1, Trigger: "initial", FindingsJSON: &initial},
+			{Round: 2, Trigger: "auto_fix", FindingsJSON: &final, FixSummary: &unsafeSummary},
+		},
+	}
+	report := &db.ReviewResolutionReportMetadata{
+		ReportPath:        &reportPath,
+		Status:            "current",
+		LatestOutcome:     "no issues remain",
+		SummaryCountsJSON: `{"selected_for_fix":1,"fix_attempts":1,"applied_fix_summaries":0,"still_open":0,"decision_not_recorded":0}`,
+	}
+
+	md, _ := BuildPipelineSummaryWithReviewReport(steps, rounds, report)
+
+	for _, unsafe := range []string{"diff --git", "password=secret"} {
+		if strings.Contains(md, unsafe) {
+			t.Fatalf("pipeline summary leaked unsafe fix summary %q:\n%s", unsafe, md)
+		}
+	}
+	if strings.Contains(md, "Applied fix:") {
+		t.Fatalf("pipeline summary rendered unsafe fix summary:\n%s", md)
+	}
+	if !strings.Contains(md, "- Applied fix summaries omitted: 1") {
+		t.Fatalf("pipeline summary missing omitted count:\n%s", md)
+	}
+}
+
 func TestBuildTestingSummary_DoesNotClaimPassedWithoutRounds(t *testing.T) {
 	steps := []*db.StepResult{
 		{ID: "s1", StepName: types.StepTest, Status: types.StepStatusCompleted},

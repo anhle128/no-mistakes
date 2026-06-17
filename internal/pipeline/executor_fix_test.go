@@ -10,6 +10,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -83,6 +84,27 @@ func TestExecutor_FixEmitsDiffAndFixReviewStatus(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("executor timed out")
+	}
+}
+
+func TestExecutorFixSummariesForStepSanitizesUnsafeSummary(t *testing.T) {
+	database, p, run, _ := setupTest(t)
+	step, err := database.InsertStepResult(run.ID, types.StepReview)
+	if err != nil {
+		t.Fatalf("insert step: %v", err)
+	}
+	unsafe := "if err != nil { return err }"
+	if _, err := database.InsertStepRound(step.ID, 2, "auto_fix", nil, &unsafe, 100); err != nil {
+		t.Fatalf("insert round: %v", err)
+	}
+
+	exec := NewExecutor(database, p, nil, nil, nil, nil)
+	got := exec.fixSummariesForStep(run.ID, types.StepReview)
+	if len(got) != 1 || got[0] != reviewreport.AppliedFixSummaryDisplayOmitted {
+		t.Fatalf("fix summaries = %v, want [%q]", got, reviewreport.AppliedFixSummaryDisplayOmitted)
+	}
+	if strings.Contains(strings.Join(got, " "), "return err") {
+		t.Fatalf("unsafe fix summary leaked: %v", got)
 	}
 }
 

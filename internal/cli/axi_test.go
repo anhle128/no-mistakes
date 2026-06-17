@@ -114,6 +114,26 @@ func TestFindingsTally(t *testing.T) {
 	}
 }
 
+func TestFixRowsSanitizesUnsafeSummaries(t *testing.T) {
+	rv := runView{Steps: []stepView{
+		{Name: "review", FixSummaries: []string{`config.Path = "/tmp/report.md"`}},
+		{Name: "test", FixSummaries: []string{""}},
+	}}
+	rows := rv.fixRows()
+	if len(rows) != 2 {
+		t.Fatalf("fix rows = %v, want two rows", rows)
+	}
+	if rows[0].Summary != "fix applied (summary omitted)" {
+		t.Fatalf("unsafe fix summary = %q", rows[0].Summary)
+	}
+	if strings.Contains(rows[0].Summary, "config.Path") {
+		t.Fatalf("unsafe fix summary leaked: %v", rows)
+	}
+	if rows[1].Summary != "fix applied (no summary recorded)" {
+		t.Fatalf("empty fix summary = %q", rows[1].Summary)
+	}
+}
+
 func TestTruncateDisclosesTotal(t *testing.T) {
 	short := truncate("hello", 100)
 	if short != "hello" {
@@ -154,6 +174,45 @@ func TestWriteRunObjectShape(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("run object missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteRunObjectIncludesReviewResolutionReport(t *testing.T) {
+	rv := runView{
+		ID:      "run-1",
+		Branch:  "feature/x",
+		Status:  string(types.RunCompleted),
+		HeadSHA: "abcdef1234567890",
+		Report: &ipc.ReviewResolutionReportInfo{
+			Path:          "/tmp/no-mistakes/reports/run-1/review-resolution.md",
+			Status:        "current",
+			LatestOutcome: "no issues remain",
+			SummaryCounts: map[string]int{
+				"selected_for_fix":      1,
+				"fix_attempts":          1,
+				"applied_fix_summaries": 1,
+				"still_open":            0,
+				"decision_not_recorded": 0,
+			},
+			UpdatedAt: 12,
+		},
+		Steps: []stepView{{Name: "review", Status: "completed"}},
+	}
+
+	out := axiDoc(runObjectField(rv))
+	for _, want := range []string{
+		"review_resolution_report:",
+		"path: /tmp/no-mistakes/reports/run-1/review-resolution.md",
+		"status: current",
+		"latest_outcome: no issues remain",
+		"summary_counts[5]{key,count}:",
+		"selected_for_fix,1",
+		"fix_attempts,1",
+		"still_open,0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("run object missing report field %q in:\n%s", want, out)
 		}
 	}
 }

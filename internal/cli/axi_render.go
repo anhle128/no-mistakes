@@ -7,6 +7,7 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -56,6 +57,11 @@ type fixRow struct {
 	Summary string `toon:"summary"`
 }
 
+type reportCountRow struct {
+	Key   string `toon:"key"`
+	Count int    `toon:"count"`
+}
+
 // stepView is a render-ready view of a single pipeline step, decoupled from
 // whether it came from the daemon (ipc) or the local database.
 type stepView struct {
@@ -77,6 +83,7 @@ type runView struct {
 	Boundary       types.ExecutionBoundary
 	GateAutomation *types.GateAutomation
 	Steps          []stepView
+	Report         *ipc.ReviewResolutionReportInfo
 }
 
 func runViewFromIPC(r *ipc.RunInfo) runView {
@@ -91,6 +98,7 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
+	rv.Report = copyReviewResolutionReportInfo(r.ReviewResolutionReport)
 	for _, s := range r.Steps {
 		sv := stepView{ID: s.ID, Name: string(s.StepName), Status: string(s.Status), FixSummaries: s.FixSummaries}
 		if s.DurationMS != nil {
@@ -105,6 +113,10 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 }
 
 func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
+	return runViewFromDBWithReport(r, steps, nil)
+}
+
+func runViewFromDBWithReport(r *db.Run, steps []*db.StepResult, report *db.ReviewResolutionReportMetadata) runView {
 	rv := runView{
 		ID:       r.ID,
 		Branch:   r.Branch,
@@ -115,6 +127,7 @@ func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
+	rv.Report = reviewreport.IPCInfoFromMetadata(report)
 	for _, s := range steps {
 		sv := stepView{ID: s.ID, Name: string(s.StepName), Status: string(s.Status)}
 		if s.DurationMS != nil {
@@ -126,6 +139,20 @@ func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 		rv.Steps = append(rv.Steps, sv)
 	}
 	return rv
+}
+
+func copyReviewResolutionReportInfo(report *ipc.ReviewResolutionReportInfo) *ipc.ReviewResolutionReportInfo {
+	if report == nil {
+		return nil
+	}
+	cp := *report
+	if report.SummaryCounts != nil {
+		cp.SummaryCounts = make(map[string]int, len(report.SummaryCounts))
+		for key, value := range report.SummaryCounts {
+			cp.SummaryCounts[key] = value
+		}
+	}
+	return &cp
 }
 
 // awaitingStep returns the step currently blocking on a human decision, if any.
@@ -206,10 +233,7 @@ func (rv runView) fixRows() []fixRow {
 	var rows []fixRow
 	for _, s := range rv.Steps {
 		for _, summary := range s.FixSummaries {
-			if summary == "" {
-				summary = "fix applied (no summary recorded)"
-			}
-			rows = append(rows, fixRow{Step: s.Name, Summary: summary})
+			rows = append(rows, fixRow{Step: s.Name, Summary: reviewreport.SanitizeAppliedFixSummary(summary)})
 		}
 	}
 	return rows
@@ -241,6 +265,9 @@ func runObjectField(rv runView) toon.Field {
 		fields = append(fields, toon.Field{Key: "boundary", Value: boundaryObject(rv.Boundary)})
 	}
 	fields = append(fields, toon.Field{Key: "findings", Value: rv.findingsTally()})
+	if rv.Report != nil {
+		fields = append(fields, toon.Field{Key: "review_resolution_report", Value: reviewResolutionReportObject(rv.Report)})
+	}
 
 	rows := make([]stepRow, 0, len(rv.Steps))
 	for _, s := range rv.Steps {
@@ -274,6 +301,30 @@ func boundaryObject(boundary types.ExecutionBoundary) toon.Object {
 	return toon.NewObject(fields...)
 }
 
+func reviewResolutionReportObject(report *ipc.ReviewResolutionReportInfo) toon.Object {
+	fields := []toon.Field{
+		{Key: "path", Value: valueOrUnavailable(report.Path)},
+		{Key: "status", Value: valueOrUnavailable(report.Status)},
+		{Key: "latest_outcome", Value: valueOrUnavailable(report.LatestOutcome)},
+	}
+	if report.UpdatedAt > 0 {
+		fields = append(fields, toon.Field{Key: "updated_at", Value: report.UpdatedAt})
+	}
+	if report.GeneratedAt > 0 {
+		fields = append(fields, toon.Field{Key: "generated_at", Value: report.GeneratedAt})
+	}
+	if report.Stale {
+		fields = append(fields, toon.Field{Key: "stale", Value: true})
+	}
+	if report.Error != "" {
+		fields = append(fields, toon.Field{Key: "error", Value: report.Error})
+	}
+	if len(report.SummaryCounts) > 0 {
+		fields = append(fields, toon.Field{Key: "summary_counts", Value: reviewReportCountRows(report.SummaryCounts)})
+	}
+	return toon.NewObject(fields...)
+}
+
 func automationFields(automation *types.GateAutomation) []toon.Field {
 	if automation == nil {
 		return nil
@@ -293,6 +344,22 @@ func automationFields(automation *types.GateAutomation) []toon.Field {
 		fields = append(fields, toon.Field{Key: "help", Value: automation.RecoveryOptions})
 	}
 	return []toon.Field{{Key: "automation", Value: toon.NewObject(fields...)}}
+}
+
+func reviewReportCountRows(counts map[string]int) []reportCountRow {
+	keys := reviewreport.CompactSummaryCountKeys()
+	rows := make([]reportCountRow, 0, len(keys))
+	for _, key := range keys {
+		rows = append(rows, reportCountRow{Key: key, Count: counts[key]})
+	}
+	return rows
+}
+
+func valueOrUnavailable(value string) string {
+	if value == "" {
+		return reviewreport.ValueUnavailable
+	}
+	return value
 }
 
 // gateFields renders the active approval gate: the awaiting step, its findings

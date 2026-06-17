@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Add or remove Spec Kit consumer repositories here.
+# Add or remove Spec Kit consumer repositories here, or pass them as positional args.
 REPOS=()
 
 EXTENSION_ID="red-team"
@@ -18,7 +18,8 @@ usage() {
 Usage:
   ./install-extension.sh [options] [repo ...]
 
-Installs this Spec Kit extension into each repo in REPOS.
+Installs this Spec Kit extension into each repo passed on the command line or
+listed in REPOS.
 If the extension is already installed, it is removed and reinstalled from the
 local source path while preserving project lens/config files.
 
@@ -29,7 +30,8 @@ Options:
   --dry-run         Print actions without changing files.
   -h, --help        Show this help.
 
-Default repos are listed at the top of this script.
+No default repos are bundled. Add local paths to REPOS or pass repo paths as
+positional args.
 EOF
 }
 
@@ -84,7 +86,7 @@ stage_extension_source() {
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     INSTALL_SOURCE="${TMPDIR:-/tmp}/speckit-$EXTENSION_ID-source.DRYRUN/source"
-    printf '+ rsync -a --exclude %q %q/ %q/\n' '.*/' "$source" "$INSTALL_SOURCE"
+    printf '+ rsync -a --exclude %q --exclude %q --exclude %q --exclude %q %q/ %q/\n' '.*/' 'AGENTS.md' 'CLAUDE.md' '.claude/' "$source" "$INSTALL_SOURCE"
     return 0
   fi
 
@@ -93,7 +95,7 @@ stage_extension_source() {
   STAGED_SOURCE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/speckit-$EXTENSION_ID-source.XXXXXX")"
   INSTALL_SOURCE="$STAGED_SOURCE_DIR/source"
   mkdir -p "$INSTALL_SOURCE"
-  rsync -a --exclude='.*/' "$source"/ "$INSTALL_SOURCE"/
+  rsync -a --exclude='.*/' --exclude='AGENTS.md' --exclude='CLAUDE.md' --exclude='.claude/' "$source"/ "$INSTALL_SOURCE"/
 }
 
 cleanup_staged_source() {
@@ -270,7 +272,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#repos[@]} -eq 0 ]]; then
-  repos=("${REPOS[@]}")
+  if (( ${#REPOS[@]} > 0 )); then
+    repos=("${REPOS[@]}")
+  fi
+fi
+if [[ ${#repos[@]} -eq 0 ]]; then
+  die "No repo paths supplied. Pass repo paths, use --repo PATH, or add entries to REPOS."
 fi
 
 command -v specify >/dev/null 2>&1 || die "specify CLI is not on PATH"

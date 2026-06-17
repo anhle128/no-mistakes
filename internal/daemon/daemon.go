@@ -18,6 +18,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
@@ -499,6 +500,9 @@ func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 		}
 	}
 	info.GateAutomation = gateAutomationInfo(d, r, info.Steps)
+	if report, err := d.GetReviewResolutionReportMetadata(r.ID); err == nil && report != nil {
+		info.ReviewResolutionReport = reviewreport.IPCInfoFromMetadata(report)
+	}
 	return info
 }
 
@@ -593,7 +597,18 @@ func stepToInfo(d *db.DB, s *db.StepResult) ipc.StepResultInfo {
 		info.FixedFindings = stats.FixedFindings
 	}
 	if summaries, err := d.StepFixSummaries(s.ID); err == nil {
-		info.FixSummaries = summaries
+		info.FixSummaries = sanitizeFixSummaries(summaries)
 	}
 	return info
+}
+
+func sanitizeFixSummaries(summaries []string) []string {
+	if len(summaries) == 0 {
+		return nil
+	}
+	clean := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		clean = append(clean, reviewreport.SanitizeAppliedFixSummary(summary))
+	}
+	return clean
 }

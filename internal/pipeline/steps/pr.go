@@ -216,7 +216,11 @@ func (s *PRStep) buildPipelineSection(sctx *pipeline.StepContext) (string, strin
 		rounds[sr.ID] = r
 	}
 
-	pipelineMD, riskLine := BuildPipelineSummary(steps, rounds)
+	report, err := sctx.DB.GetReviewResolutionReportMetadata(sctx.Run.ID)
+	if err != nil {
+		slog.Warn("failed to query review resolution report metadata for PR summary", "error", err)
+	}
+	pipelineMD, riskLine := BuildPipelineSummaryWithReviewReport(steps, rounds, report)
 	testingMD := BuildTestingSummaryForPR(steps, rounds, sctx.Repo.UpstreamURL, sctx.Run.HeadSHA, sctx.WorkDir)
 	return pipelineMD, riskLine, testingMD
 }

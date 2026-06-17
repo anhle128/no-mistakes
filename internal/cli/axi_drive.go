@@ -506,7 +506,7 @@ func renderDriveResult(cmd *cobra.Command, run *ipc.RunInfo, ciReady bool) error
 		}
 		fixes := rv.fixRows()
 		fields = appendFixesField(fields, fixes)
-		fields = append(fields, toon.Field{Key: "help", Value: append([]string{merge}, successReportHelp(fixes)...)})
+		fields = append(fields, toon.Field{Key: "help", Value: append([]string{merge}, successReportHelp(fixes, rv.Report)...)})
 		emitDoc(cmd, fields...)
 		return nil
 	}
@@ -530,7 +530,7 @@ func renderDriveResult(cmd *cobra.Command, run *ipc.RunInfo, ciReady bool) error
 		if rv.PRURL != "" {
 			help = append(help, fmt.Sprintf("Open the PR: %s", rv.PRURL))
 		}
-		help = append(help, successReportHelp(fixes)...)
+		help = append(help, successReportHelp(fixes, rv.Report)...)
 		fields = append(fields, toon.Field{Key: "help", Value: help})
 		emitDoc(cmd, fields...)
 		return nil
@@ -554,12 +554,19 @@ func appendFixesField(fields []toon.Field, fixes []fixRow) []toon.Field {
 // successReportHelp returns the reporting instructions for a successful
 // outcome: always summarize the run for the user, and when the pipeline
 // applied fixes, own the misses and list every fix for the user's review.
-func successReportHelp(fixes []fixRow) []string {
+func successReportHelp(fixes []fixRow, report *ipc.ReviewResolutionReportInfo) []string {
 	help := []string{"Summarize this pipeline run for the user in a concise, easily readable format: what was validated and what was found."}
 	if len(fixes) > 0 {
 		help = append(help, "The pipeline fixed findings the original change missed (see `fixes`) - acknowledge the misses and list each fix so the user can review them.")
 	}
+	if reportHasReviewablePath(report) {
+		help = append(help, fmt.Sprintf("Review the durable review-resolution report at %s for original findings, decisions, applied fixes, and the latest review outcome.", report.Path))
+	}
 	return help
+}
+
+func reportHasReviewablePath(report *ipc.ReviewResolutionReportInfo) bool {
+	return report != nil && strings.TrimSpace(report.Path) != "" && report.Status != "unavailable"
 }
 
 func newAxiRespondCmd() *cobra.Command {

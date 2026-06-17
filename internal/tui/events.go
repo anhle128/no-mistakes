@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -16,6 +17,7 @@ func (m *Model) applyEvent(event ipc.Event) {
 			m.run.Boundary = *event.Boundary
 		}
 		m.applyGateAutomationEvent(event)
+		m.applyReviewResolutionReport(event.ReviewResolutionReport)
 		if event.Status != nil {
 			m.run.Status = types.RunStatus(*event.Status)
 		}
@@ -29,6 +31,7 @@ func (m *Model) applyEvent(event ipc.Event) {
 			m.run.Boundary = *event.Boundary
 		}
 		m.applyGateAutomationEvent(event)
+		m.applyReviewResolutionReport(event.ReviewResolutionReport)
 		if event.Status != nil {
 			m.run.Status = types.RunStatus(*event.Status)
 		}
@@ -61,6 +64,7 @@ func (m *Model) applyEvent(event ipc.Event) {
 		m.applyGateAutomationEvent(event)
 		m.syntheticSteps = false
 		m.flushPartialLog()
+		m.applyReviewResolutionReport(event.ReviewResolutionReport)
 		if event.StepName != nil && event.Status != nil {
 			m.updateStepStatus(*event.StepName, types.StepStatus(*event.Status))
 		}
@@ -182,6 +186,20 @@ func (m *Model) clearResolvedGateAutomation(event ipc.Event) {
 	m.run.GateAutomation = nil
 }
 
+func (m *Model) applyReviewResolutionReport(report *ipc.ReviewResolutionReportInfo) {
+	if report == nil || m.run == nil {
+		return
+	}
+	cp := *report
+	if report.SummaryCounts != nil {
+		cp.SummaryCounts = make(map[string]int, len(report.SummaryCounts))
+		for key, value := range report.SummaryCounts {
+			cp.SummaryCounts[key] = value
+		}
+	}
+	m.run.ReviewResolutionReport = &cp
+}
+
 func (m *Model) updateStepStatus(name types.StepName, status types.StepStatus) {
 	for i := range m.steps {
 		if m.steps[i].StepName == name {
@@ -245,10 +263,21 @@ func (m *Model) setStepReportedFindings(name types.StepName, reportedFindings in
 func (m *Model) setStepFixSummaries(name types.StepName, summaries []string) {
 	for i := range m.steps {
 		if m.steps[i].StepName == name {
-			m.steps[i].FixSummaries = append([]string(nil), summaries...)
+			m.steps[i].FixSummaries = sanitizeFixSummaries(summaries)
 			return
 		}
 	}
+}
+
+func sanitizeFixSummaries(summaries []string) []string {
+	if len(summaries) == 0 {
+		return nil
+	}
+	clean := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		clean = append(clean, reviewreport.SanitizeAppliedFixSummary(summary))
+	}
+	return clean
 }
 
 // stepsWithRunningElapsed returns a copy of m.steps with DurationMS set on

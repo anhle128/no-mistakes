@@ -31,6 +31,14 @@ demo_raw.gif
 # Environment
 .env
 .env.local
+
+# SpecKit extension runtime/cache artifacts
+.specify/extensions/.cache/
+.specify/extensions/**/.git/
+.specify/extensions/**/.claude/
+.specify/extensions/**/.omx/
+.specify/extensions/**/.gitnexus/
+
 .codex/*
 !.codex/agents/
 !.codex/agents/**

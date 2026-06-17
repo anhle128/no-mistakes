@@ -277,6 +277,14 @@ func TestRunInfoRoundTrip(t *testing.T) {
 			RequestedMode:   types.ConsentModeYes,
 			Reason:          "safe",
 		},
+		ReviewResolutionReport: &ReviewResolutionReportInfo{
+			Path:          "/tmp/nm/reports/run001/review-resolution.md",
+			Status:        "current",
+			LatestOutcome: "no issues remain",
+			SummaryCounts: map[string]int{"total_findings": 1},
+			UpdatedAt:     1700000002,
+			GeneratedAt:   1700000001,
+		},
 		CreatedAt: 1700000000,
 		UpdatedAt: 1700000001,
 	}
@@ -299,6 +307,15 @@ func TestRunInfoRoundTrip(t *testing.T) {
 	}
 	if got.GateAutomation == nil || got.GateAutomation.Status != types.GateAutomationAllowed || got.GateAutomation.RequestedMode != types.ConsentModeYes {
 		t.Errorf("gate automation mismatch: %+v", got.GateAutomation)
+	}
+	if got.ReviewResolutionReport == nil {
+		t.Fatal("review_resolution_report should round-trip")
+	}
+	if got.ReviewResolutionReport.Path != "/tmp/nm/reports/run001/review-resolution.md" {
+		t.Fatalf("report path = %q", got.ReviewResolutionReport.Path)
+	}
+	if got.ReviewResolutionReport.SummaryCounts["total_findings"] != 1 {
+		t.Fatalf("summary counts = %+v", got.ReviewResolutionReport.SummaryCounts)
 	}
 }
 
@@ -346,6 +363,34 @@ func TestEventStepCompletedRoundTripIncludesFixSummaries(t *testing.T) {
 	}
 	if len(got.FixSummaries) != 1 || got.FixSummaries[0] != "remove unsafe fallback" {
 		t.Fatalf("fix_summaries = %v, want [remove unsafe fallback]", got.FixSummaries)
+	}
+}
+
+func TestEventRoundTripIncludesReviewResolutionReport(t *testing.T) {
+	event := Event{
+		Type:   EventRunUpdated,
+		RunID:  "run001",
+		RepoID: "repo001",
+		ReviewResolutionReport: &ReviewResolutionReportInfo{
+			Status:        "stale",
+			LatestOutcome: "review resolution incomplete",
+			Stale:         true,
+			Error:         "newer review evidence exists",
+		},
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Event
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ReviewResolutionReport == nil {
+		t.Fatal("review_resolution_report should round-trip")
+	}
+	if got.ReviewResolutionReport.Status != "stale" || !got.ReviewResolutionReport.Stale {
+		t.Fatalf("report metadata = %+v", got.ReviewResolutionReport)
 	}
 }
 
@@ -448,6 +493,9 @@ func TestNullableFieldsOmitted(t *testing.T) {
 	}
 	if _, ok := raw["error"]; ok {
 		t.Error("error should be omitted when nil")
+	}
+	if _, ok := raw["review_resolution_report"]; ok {
+		t.Error("review_resolution_report should be omitted when nil")
 	}
 }
 

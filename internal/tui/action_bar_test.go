@@ -123,6 +123,26 @@ func TestActionBar_FixReviewPromptInView(t *testing.T) {
 	}
 }
 
+func TestActionBar_FixReviewPromptOmitsUnsafeSummary(t *testing.T) {
+	configureTUIColors()
+	run := testRun()
+	run.Steps[0].Status = types.StepStatusFixReview
+	run.Steps[0].FixSummaries = []string{`items[0] = value`}
+	m := NewModel("", nil, run)
+	m.width = 80
+	m.height = 50
+	m.stepFindings[types.StepReview] = `{"summary":"test","items":[{"id":"f1","severity":"error","file":"foo.go","line":1,"description":"bad"}]}`
+	m.resetFindingSelection(types.StepReview)
+
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "Applied fix: fix applied (summary omitted)") {
+		t.Errorf("expected omitted applied fix summary in full view, got:\n%s", view)
+	}
+	if strings.Contains(view, "items[0]") {
+		t.Errorf("unsafe applied fix summary leaked in full view:\n%s", view)
+	}
+}
+
 // --- Run Outcome Banner Tests ---
 
 func TestOutcomeBanner_SuccessShowsCheckmark(t *testing.T) {

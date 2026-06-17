@@ -2,6 +2,7 @@ package steps
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/url"
@@ -13,12 +14,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
 const (
 	maxEmbeddedArtifactBytes       = 16 * 1024
 	maxEmbeddedArtifactsTotalBytes = 32 * 1024
+	maxReviewFixSummaries          = 3
 )
 
 type testingArtifactRenderState struct {
@@ -37,6 +40,13 @@ type testingSummaryOptions struct {
 
 // BuildPipelineSummary produces a deterministic markdown section from step results and rounds.
 func BuildPipelineSummary(steps []*db.StepResult, rounds map[string][]*db.StepRound) (string, string) {
+	return BuildPipelineSummaryWithReviewReport(steps, rounds, nil)
+}
+
+// BuildPipelineSummaryWithReviewReport produces a deterministic markdown
+// section and includes the compact durable review report reference when
+// persisted metadata exists or review fixes were applied.
+func BuildPipelineSummaryWithReviewReport(steps []*db.StepResult, rounds map[string][]*db.StepRound, report *db.ReviewResolutionReportMetadata) (string, string) {
 	if len(steps) == 0 {
 		return "", ""
 	}
@@ -60,6 +70,10 @@ func BuildPipelineSummary(steps []*db.StepResult, rounds map[string][]*db.StepRo
 
 	var b strings.Builder
 	b.WriteString("## Pipeline\n\nUpdates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)\n\n")
+	if reportSummary := buildReviewResolutionReportSummary(steps, rounds, report); reportSummary != "" {
+		b.WriteString(reportSummary)
+		b.WriteString("\n")
+	}
 	for i, detail := range detailBlocks {
 		if i > 0 {
 			b.WriteString("\n")
@@ -69,6 +83,117 @@ func BuildPipelineSummary(steps []*db.StepResult, rounds map[string][]*db.StepRo
 
 	riskLine := extractRiskLine(steps, rounds)
 	return b.String(), riskLine
+}
+
+func buildReviewResolutionReportSummary(steps []*db.StepResult, rounds map[string][]*db.StepRound, report *db.ReviewResolutionReportMetadata) string {
+	if report == nil && !hasReviewFixRounds(steps, rounds) {
+		return ""
+	}
+
+	path := "not recorded"
+	status := reviewreport.StatusUnavailable
+	outcome := reviewreport.ValueUnavailable
+	stale := false
+	safeErr := ""
+	counts := map[string]int{}
+	if report != nil {
+		if report.ReportPath != nil && strings.TrimSpace(*report.ReportPath) != "" {
+			path = *report.ReportPath
+		}
+		if strings.TrimSpace(report.Status) != "" {
+			status = report.Status
+		}
+		if strings.TrimSpace(report.LatestOutcome) != "" {
+			outcome = report.LatestOutcome
+		}
+		stale = report.Stale
+		if report.SafeError != nil {
+			safeErr = sanitizePromptText(*report.SafeError)
+		}
+		counts = parseReviewReportCounts(report.SummaryCountsJSON)
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("**Review resolution report:** <code>%s</code> (status: %s, latest outcome: %s)\n", html.EscapeString(path), html.EscapeString(status), html.EscapeString(outcome)))
+	if len(counts) > 0 {
+		compact := reviewreport.CompactSummaryCountsFromMap(counts)
+		b.WriteString(fmt.Sprintf("- Counts: selected_for_fix=%d, fix_attempts=%d, applied_fix_summaries=%d, still_open=%d, decision_not_recorded=%d\n",
+			compact.SelectedForFix,
+			compact.FixAttempts,
+			compact.AppliedFixSummaries,
+			compact.StillOpen,
+			compact.DecisionNotRecorded,
+		))
+	}
+	summaries, omitted := collectReviewFixSummaries(steps, rounds)
+	for _, summary := range summaries {
+		b.WriteString("- Applied fix: ")
+		b.WriteString(html.EscapeString(summary))
+		b.WriteString("\n")
+	}
+	if omitted > 0 {
+		b.WriteString(fmt.Sprintf("- Applied fix summaries omitted: %d\n", omitted))
+	}
+	if stale || safeErr != "" {
+		warning := "stale"
+		if safeErr != "" {
+			warning = safeErr
+		}
+		b.WriteString("- Report warning: ")
+		b.WriteString(html.EscapeString(warning))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func parseReviewReportCounts(raw string) map[string]int {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	counts := map[string]int{}
+	if err := json.Unmarshal([]byte(raw), &counts); err != nil || len(counts) == 0 {
+		return nil
+	}
+	return counts
+}
+
+func hasReviewFixRounds(steps []*db.StepResult, rounds map[string][]*db.StepRound) bool {
+	for _, sr := range steps {
+		if sr == nil || sr.StepName != types.StepReview {
+			continue
+		}
+		for _, r := range rounds[sr.ID] {
+			if r != nil && r.IsFixRound() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func collectReviewFixSummaries(steps []*db.StepResult, rounds map[string][]*db.StepRound) ([]string, int) {
+	var summaries []string
+	omitted := 0
+	for _, sr := range steps {
+		if sr == nil || sr.StepName != types.StepReview {
+			continue
+		}
+		for _, r := range rounds[sr.ID] {
+			if r == nil || !r.IsFixRound() {
+				continue
+			}
+			summary := ""
+			if r.FixSummary != nil {
+				summary = reviewreport.SanitizeText(*r.FixSummary, "")
+			}
+			if summary == "" || summary == reviewreport.ValueUnavailable || len(summaries) >= maxReviewFixSummaries {
+				omitted++
+				continue
+			}
+			summaries = append(summaries, summary)
+		}
+	}
+	return summaries, omitted
 }
 
 // BuildTestingSummary extracts a deterministic Testing section from the test step.
@@ -1100,9 +1225,9 @@ func buildStepDetails(summaryLine string, sr *db.StepResult, rounds []*db.StepRo
 func fixRoundLine(r *db.StepRound) string {
 	summary := ""
 	if r.FixSummary != nil {
-		summary = strings.TrimSpace(*r.FixSummary)
+		summary = reviewreport.SanitizeText(*r.FixSummary, "")
 	}
-	if summary == "" {
+	if summary == "" || summary == reviewreport.ValueUnavailable {
 		return "🔧 Fix applied."
 	}
 	return fmt.Sprintf("🔧 Fix: %s", html.EscapeString(summary))
