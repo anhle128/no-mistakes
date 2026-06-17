@@ -206,6 +206,7 @@ Press `e` to add or edit extra guidance for the current finding. Press `+` to ad
 Press `y` to toggle yolo mode when you want paused approval gates to resolve automatically.
 Yolo fixes gates with `auto-fix` and `ask-user` findings by selecting every finding, then approves the resulting fix-review gate.
 It approves gates with no findings or only `action: no-op` findings as-is, and fixes each step at most once so unresolved findings do not loop forever.
+Before sending each unattended yolo response, no-mistakes refreshes the run's execution-boundary proof in the daemon. If the proof is unsafe or unknown, yolo is withheld, the gate stays paused, and the TUI shows an **Automation** notice with the mode, gate, reason, message, and recovery options.
 
 ## Outcome banner
 

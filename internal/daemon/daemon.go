@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kunchenguid/no-mistakes/internal/agent"
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/git"
@@ -19,6 +20,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
+	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
 var applyShellEnvToProcess = shellenv.ApplyToProcess
@@ -426,7 +428,15 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
-		if err := mgr.HandleRespondWithOverrides(p.RunID, p.Step, p.Action, p.FindingIDs, p.Instructions, p.AddedFindings); err != nil {
+		meta := types.DecisionMetadata{
+			DecisionSource:  p.DecisionSource,
+			ActorType:       p.ActorType,
+			ApprovalSurface: p.ApprovalSurface,
+			ConsentMode:     p.ConsentMode,
+			GateID:          p.GateID,
+			GateFingerprint: p.GateFingerprint,
+		}
+		if err := mgr.HandleRespondWithMetadata(p.RunID, p.Step, p.Action, p.FindingIDs, p.Instructions, p.AddedFindings, meta); err != nil {
 			return nil, err
 		}
 		return &ipc.RespondResult{OK: true}, nil
@@ -478,6 +488,7 @@ func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 		Status:    r.Status,
 		PRURL:     r.PRURL,
 		Error:     r.Error,
+		Boundary:  r.Boundary(),
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 	}
@@ -487,7 +498,80 @@ func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 			info.Steps = append(info.Steps, stepToInfo(d, s))
 		}
 	}
+	info.GateAutomation = gateAutomationInfo(d, r, info.Steps)
 	return info
+}
+
+func gateAutomationInfo(d *db.DB, r *db.Run, steps []ipc.StepResultInfo) *types.GateAutomation {
+	for _, step := range steps {
+		if step.Status != types.StepStatusAwaitingApproval && step.Status != types.StepStatusFixReview {
+			continue
+		}
+		findings := ""
+		if step.FindingsJSON != nil {
+			findings = *step.FindingsJSON
+		}
+		gateID := string(step.StepName)
+		version, err := d.StepGateVersion(step.ID)
+		if err != nil {
+			slog.Warn("failed to compute gate version", "run_id", r.ID, "step", step.StepName, "error", err)
+			version = db.FallbackStepGateVersion(step.ID)
+		}
+		fingerprint := boundary.GateFingerprint(r.ID, step.StepName, step.Status, version, findings)
+		if event, err := d.GetGateAutomationEvent(r.ID, gateID, fingerprint); err == nil && event != nil {
+			return &types.GateAutomation{
+				GateID:          gateID,
+				GateFingerprint: fingerprint,
+				Status:          normalizeGateAutomationStatus(event.Status),
+				RequestedMode:   normalizeConsentMode(event.RequestedMode),
+				Reason:          event.Reason,
+				Message:         event.Message,
+				RecoveryOptions: recoveryOptionsForStatus(event.Status),
+			}
+		}
+		automation := boundary.AutomationForBoundary(r.Boundary(), gateID, fingerprint, types.ConsentModeNone)
+		stepName := step.StepName
+		if _, err := d.InsertRunEvent(db.RunEvent{
+			RunID:           r.ID,
+			EventType:       db.RunEventGateAutomationNotRequested,
+			StepName:        &stepName,
+			GateID:          gateID,
+			GateFingerprint: fingerprint,
+			Status:          automation.Status,
+			RequestedMode:   automation.RequestedMode,
+			Reason:          automation.Reason,
+			Message:         automation.Message,
+			DecisionSource:  types.DecisionSourceManual,
+			ActorType:       types.ActorSystem,
+			ApprovalSurface: types.ApprovalSurfaceDaemon,
+			ConsentMode:     types.ConsentModeNone,
+		}); err != nil {
+			slog.Warn("failed to record not-requested gate automation event", "run_id", r.ID, "gate_id", gateID, "error", err)
+		}
+		return &automation
+	}
+	return nil
+}
+
+func normalizeGateAutomationStatus(status types.GateAutomationStatus) types.GateAutomationStatus {
+	if !status.Valid() {
+		return types.GateAutomationNotRequested
+	}
+	return status
+}
+
+func normalizeConsentMode(mode types.ConsentMode) types.ConsentMode {
+	if !mode.Valid() {
+		return types.ConsentModeNone
+	}
+	return mode
+}
+
+func recoveryOptionsForStatus(status types.GateAutomationStatus) []string {
+	if status != types.GateAutomationWithheld {
+		return nil
+	}
+	return boundary.RecoveryOptions()
 }
 
 func stepToInfo(d *db.DB, s *db.StepResult) ipc.StepResultInfo {

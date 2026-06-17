@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,73 @@ func TestLintStep_NoConfiguredLint_CommitsAgentFixesWithoutApproval(t *testing.T
 	}
 	if status := gitStatusPorcelain(t, dir); status != "" {
 		t.Fatalf("expected clean worktree after lint fix commit, got %q", status)
+	}
+	if got := lastCommitMessage(t, dir); got != "no-mistakes(lint): format code" {
+		t.Fatalf("last commit message = %q", got)
+	}
+}
+
+func TestLintStep_NoConfiguredLint_RequiresSafeBoundaryBeforeAgent(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	callCount := 0
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			callCount++
+			os.WriteFile(filepath.Join(dir, "lint-fix.txt"), []byte("fixed"), 0o644)
+			return &agent.Result{Output: json.RawMessage(`{"findings":[],"summary":"format code"}`)}, nil
+		},
+	}
+
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.RequireSafeBoundary = func(action string) error {
+		if action != "fix lint issues" {
+			t.Fatalf("boundary action = %q, want fix lint issues", action)
+		}
+		return errors.New("unsafe boundary")
+	}
+
+	step := &LintStep{}
+	if _, err := step.Execute(sctx); err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("Execute error = %v, want unsafe boundary", err)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no lint agent call before safe boundary, got %d", callCount)
+	}
+	if status := gitStatusPorcelain(t, dir); status != "" {
+		t.Fatalf("expected clean worktree after withheld lint agent, got %q", status)
+	}
+}
+
+func TestLintStep_NoConfiguredLint_UserFixSkipsAutomaticBoundaryGuard(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	gitCmd(t, dir, "checkout", "--detach", headSHA)
+
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			os.WriteFile(filepath.Join(dir, "lint-fix.txt"), []byte("fixed"), 0o644)
+			return &agent.Result{Output: json.RawMessage(`{"findings":[],"summary":"format code"}`)}, nil
+		},
+	}
+
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Fixing = true
+	sctx.RequireSafeBoundary = func(action string) error {
+		t.Fatalf("manual lint fix should not use unattended boundary guard, got %q", action)
+		return nil
+	}
+
+	step := &LintStep{}
+	outcome, err := step.Execute(sctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.NeedsApproval {
+		t.Fatal("expected no approval after manual no-config lint fix")
 	}
 	if got := lastCommitMessage(t, dir); got != "no-mistakes(lint): format code" {
 		t.Fatalf("last commit message = %q", got)

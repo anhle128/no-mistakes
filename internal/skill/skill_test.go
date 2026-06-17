@@ -45,6 +45,21 @@ func TestBodyDocumentsTaskFirstFlow(t *testing.T) {
 	}
 }
 
+func TestBodyDocumentsWithheldAutomationContract(t *testing.T) {
+	md := Markdown()
+	for _, want := range []string{
+		"Unattended `--yes` is honored only when no-mistakes can prove the run is still",
+		"`automation.status: withheld`",
+		"do not convert that into a manual `respond` call yourself",
+		"Report the boundary",
+		"explicit per-gate user decision",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("body should document withheld automation contract: missing %q", want)
+		}
+	}
+}
+
 func TestInstallWritesBothPaths(t *testing.T) {
 	root := t.TempDir()
 	written, err := Install(root)

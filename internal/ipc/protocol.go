@@ -108,13 +108,23 @@ type SubscribeParams struct {
 // AddedFindings carries user-authored findings that are merged into the round
 // alongside agent-produced ones. Both fields only apply when Action triggers
 // a fix round.
+//
+// Decision metadata identifies whether the response is explicit manual input
+// or unattended automation. Legacy callers can omit it; the daemon treats
+// missing metadata as a manual human decision from an unknown surface.
 type RespondParams struct {
-	RunID         string               `json:"run_id"`
-	Step          types.StepName       `json:"step"`
-	Action        types.ApprovalAction `json:"action"`
-	FindingIDs    []string             `json:"finding_ids,omitempty"`
-	Instructions  map[string]string    `json:"instructions,omitempty"`
-	AddedFindings []types.Finding      `json:"added_findings,omitempty"`
+	RunID           string                `json:"run_id"`
+	Step            types.StepName        `json:"step"`
+	Action          types.ApprovalAction  `json:"action"`
+	FindingIDs      []string              `json:"finding_ids,omitempty"`
+	Instructions    map[string]string     `json:"instructions,omitempty"`
+	AddedFindings   []types.Finding       `json:"added_findings,omitempty"`
+	DecisionSource  types.DecisionSource  `json:"decision_source,omitempty"`
+	ActorType       types.ActorType       `json:"actor_type,omitempty"`
+	ApprovalSurface types.ApprovalSurface `json:"approval_surface,omitempty"`
+	ConsentMode     types.ConsentMode     `json:"consent_mode,omitempty"`
+	GateID          string                `json:"gate_id,omitempty"`
+	GateFingerprint string                `json:"gate_fingerprint,omitempty"`
 }
 
 // CancelRunParams cancels an active pipeline run.
@@ -177,19 +187,23 @@ type ShutdownResult struct {
 
 // --- Wire types ---
 
-// RunInfo is the IPC representation of a pipeline run.
+// RunInfo is the IPC representation of a pipeline run. Boundary is always the
+// latest persisted execution-boundary proof, while GateAutomation describes the
+// current awaiting gate only when unattended automation has been requested.
 type RunInfo struct {
-	ID        string           `json:"id"`
-	RepoID    string           `json:"repo_id"`
-	Branch    string           `json:"branch"`
-	HeadSHA   string           `json:"head_sha"`
-	BaseSHA   string           `json:"base_sha"`
-	Status    types.RunStatus  `json:"status"`
-	PRURL     *string          `json:"pr_url,omitempty"`
-	Error     *string          `json:"error,omitempty"`
-	Steps     []StepResultInfo `json:"steps,omitempty"`
-	CreatedAt int64            `json:"created_at"`
-	UpdatedAt int64            `json:"updated_at"`
+	ID             string                  `json:"id"`
+	RepoID         string                  `json:"repo_id"`
+	Branch         string                  `json:"branch"`
+	HeadSHA        string                  `json:"head_sha"`
+	BaseSHA        string                  `json:"base_sha"`
+	Status         types.RunStatus         `json:"status"`
+	PRURL          *string                 `json:"pr_url,omitempty"`
+	Error          *string                 `json:"error,omitempty"`
+	Boundary       types.ExecutionBoundary `json:"boundary"`
+	GateAutomation *types.GateAutomation   `json:"gate_automation,omitempty"`
+	Steps          []StepResultInfo        `json:"steps,omitempty"`
+	CreatedAt      int64                   `json:"created_at"`
+	UpdatedAt      int64                   `json:"updated_at"`
 }
 
 // StepResultInfo is the IPC representation of a step result.
@@ -227,24 +241,28 @@ const (
 	EventLogChunk      EventType = "log_chunk"
 )
 
-// Event is a real-time update sent to subscribers.
+// Event is a real-time update sent to subscribers. Boundary and GateAutomation
+// are included on updates that change the run's execution-boundary proof or
+// gate automation state.
 type Event struct {
-	Type             EventType       `json:"type"`
-	RunID            string          `json:"run_id"`
-	RepoID           string          `json:"repo_id"`
-	StepName         *types.StepName `json:"step_name,omitempty"`
-	Status           *string         `json:"status,omitempty"`
-	Error            *string         `json:"error,omitempty"`
-	Stream           *string         `json:"stream,omitempty"`
-	Content          *string         `json:"content,omitempty"`
-	Branch           *string         `json:"branch,omitempty"`
-	Findings         *string         `json:"findings,omitempty"` // JSON-encoded findings for step_completed events
-	Diff             *string         `json:"diff,omitempty"`     // unified diff for fix_review events
-	ReportedFindings *int            `json:"reported_findings,omitempty"`
-	FixedFindings    *int            `json:"fixed_findings,omitempty"`
-	FixSummaries     []string        `json:"fix_summaries,omitempty"`
-	DurationMS       *int64          `json:"duration_ms,omitempty"` // execution-only duration for step events
-	PRURL            *string         `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events
+	Type             EventType                `json:"type"`
+	RunID            string                   `json:"run_id"`
+	RepoID           string                   `json:"repo_id"`
+	StepName         *types.StepName          `json:"step_name,omitempty"`
+	Status           *string                  `json:"status,omitempty"`
+	Error            *string                  `json:"error,omitempty"`
+	Stream           *string                  `json:"stream,omitempty"`
+	Content          *string                  `json:"content,omitempty"`
+	Branch           *string                  `json:"branch,omitempty"`
+	Findings         *string                  `json:"findings,omitempty"` // JSON-encoded findings for step_completed events
+	Diff             *string                  `json:"diff,omitempty"`     // unified diff for fix_review events
+	ReportedFindings *int                     `json:"reported_findings,omitempty"`
+	FixedFindings    *int                     `json:"fixed_findings,omitempty"`
+	FixSummaries     []string                 `json:"fix_summaries,omitempty"`
+	DurationMS       *int64                   `json:"duration_ms,omitempty"` // execution-only duration for step events
+	PRURL            *string                  `json:"pr_url,omitempty"`      // PR URL for run_updated/run_completed events
+	Boundary         *types.ExecutionBoundary `json:"boundary,omitempty"`
+	GateAutomation   *types.GateAutomation    `json:"gate_automation,omitempty"`
 }
 
 // --- Helpers ---

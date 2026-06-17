@@ -28,6 +28,7 @@ The pipeline is opinionated so that "passed the gate" has a stable meaning:
 - the branch was checked against fresh upstream first
 - review, tests, user-facing test evidence when available, docs, and lint happened before any upstream push
 - the human stayed in control when a step needed judgment
+- unattended source-changing and remote-advancing automation only ran from a freshly verified managed run worktree
 - push, PR creation, and CI monitoring only happened after the local gate was satisfied
 
 ## The nine steps

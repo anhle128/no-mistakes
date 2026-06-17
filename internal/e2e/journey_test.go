@@ -335,6 +335,8 @@ func cleanReviewScenario(t *testing.T) string {
           file: "review-warning.txt"
           line: 1
           description: "potential null pointer"
+          context: "The fake review scenario models a warning on review-warning.txt so the approval gate path is exercised."
+          suggested_fix: "Inspect review-warning.txt and either approve the deliberate change or authorize a targeted fix."
           action: ask-user
       summary: "found 1 issue"
       risk_level: medium
@@ -406,6 +408,8 @@ func cleanReviewScenario(t *testing.T) string {
           file: "hello.txt"
           line: 1
           description: "looks good"
+          context: "The fake review scenario returns an informational finding so the review step records non-blocking output."
+          suggested_fix: "No code change is required for this informational finding."
           action: no-op
       summary: "no blocking issues"
       risk_level: low
@@ -422,6 +426,8 @@ func cleanReviewScenario(t *testing.T) string {
           file: "hello.txt"
           line: 1
           description: "looks good"
+          context: "The fake review scenario returns an informational finding so the review step records non-blocking output."
+          suggested_fix: "No code change is required for this informational finding."
           action: no-op
       summary: "no blocking issues"
       risk_level: low

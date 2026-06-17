@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kunchenguid/no-mistakes/internal/agent"
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/git"
@@ -28,6 +29,7 @@ type approvalResponse struct {
 	findingIDs    []string
 	instructions  map[string]string
 	addedFindings []types.Finding
+	decision      types.DecisionMetadata
 }
 
 // Executor runs pipeline steps sequentially and coordinates approval interactions.
@@ -86,6 +88,13 @@ func (e *Executor) Respond(step types.StepName, action types.ApprovalAction, fin
 // instructions and user-authored findings. Both are merged into the round's
 // findings on a fix action before the fix agent runs.
 func (e *Executor) RespondWithOverrides(step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, addedFindings []types.Finding) error {
+	return e.RespondWithMetadata(step, action, findingIDs, instructions, addedFindings, types.DecisionMetadata{})
+}
+
+// RespondWithMetadata is like RespondWithOverrides but preserves how the
+// decision was authorized so fix-mode can re-check unattended writes.
+func (e *Executor) RespondWithMetadata(step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, addedFindings []types.Finding, decision types.DecisionMetadata) error {
+	decision = types.NormalizeRespondDecisionMetadata(decision)
 	e.mu.Lock()
 	if !e.waiting {
 		e.mu.Unlock()
@@ -103,6 +112,7 @@ func (e *Executor) RespondWithOverrides(step types.StepName, action types.Approv
 		findingIDs:    findingIDs,
 		instructions:  instructions,
 		addedFindings: addedFindings,
+		decision:      decision,
 	}
 	return nil
 }
@@ -216,6 +226,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 		Agent:        e.agent,
 		Config:       e.config,
 		DB:           e.db,
+		Boundary:     run.Boundary(),
 		StepResultID: sr.ID,
 		UserIntent:   userIntent,
 		Log: func(text string) {
@@ -240,6 +251,82 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 		LogFile: func(text string) {
 			fmt.Fprintln(logFile, text)
 		},
+	}
+	sctx.RefreshBoundary = func(action string) (types.ExecutionBoundary, error) {
+		refreshed := boundary.VerifyRunWorktree(ctx, e.paths, repo.ID, run.ID, workDir)
+		if err := e.db.UpdateRunBoundary(run.ID, refreshed); err != nil {
+			slog.Warn("failed to persist refreshed boundary", "run_id", run.ID, "action", action, "error", err)
+		}
+		run.BoundaryStatus = refreshed.Status
+		run.BoundaryReason = refreshed.Reason
+		run.BoundaryDetail = refreshed.Detail
+		run.BoundaryExpectedWorktreePath = refreshed.ExpectedWorktreePath
+		run.BoundaryActualWorktreePath = refreshed.ActualWorktreePath
+		run.BoundaryGitCommonDir = refreshed.GitCommonDir
+		run.BoundaryGateRepoPath = refreshed.GateRepoPath
+		run.BoundaryFingerprint = refreshed.Fingerprint
+		run.BoundaryVerifierVersion = refreshed.VerifierVersion
+		if refreshed.VerifiedAt > 0 {
+			run.BoundaryVerifiedAt = &refreshed.VerifiedAt
+		} else {
+			run.BoundaryVerifiedAt = nil
+		}
+		if _, err := e.db.InsertRunEvent(db.RunEvent{
+			RunID:     run.ID,
+			EventType: db.RunEventBoundaryRefreshed,
+			StepName:  &stepName,
+			Reason:    string(refreshed.Reason),
+			Message:   refreshed.Detail,
+		}); err != nil {
+			slog.Warn("failed to record boundary refresh", "run_id", run.ID, "step", stepName, "error", err)
+		}
+		sctx.Boundary = refreshed
+		return refreshed, nil
+	}
+	sctx.RequireSafeBoundary = func(action string) error {
+		refreshed, err := sctx.RefreshBoundary(action)
+		if err != nil {
+			return err
+		}
+		gateID, gateFingerprint := sctx.automationGateIdentity(run.ID, stepName, action)
+		if err := boundary.RequireSafe(refreshed, action); err != nil {
+			if _, recordErr := e.db.InsertRunEvent(db.RunEvent{
+				RunID:           run.ID,
+				EventType:       db.RunEventGateAutomationWithheld,
+				StepName:        &stepName,
+				GateID:          gateID,
+				GateFingerprint: gateFingerprint,
+				Status:          types.GateAutomationWithheld,
+				RequestedMode:   types.ConsentModeAgentUnattended,
+				Reason:          string(refreshed.Status),
+				Message:         err.Error(),
+				DecisionSource:  types.DecisionSourceUnattended,
+				ActorType:       types.ActorSystem,
+				ApprovalSurface: types.ApprovalSurfaceDaemon,
+				ConsentMode:     types.ConsentModeAgentUnattended,
+			}); recordErr != nil {
+				return fmt.Errorf("%w; record withheld boundary action: %v", err, recordErr)
+			}
+			return err
+		}
+		if _, recordErr := e.db.InsertRunEvent(db.RunEvent{
+			RunID:           run.ID,
+			EventType:       db.RunEventGateAutomationAllowed,
+			StepName:        &stepName,
+			GateID:          gateID,
+			GateFingerprint: gateFingerprint,
+			Status:          types.GateAutomationAllowed,
+			RequestedMode:   types.ConsentModeAgentUnattended,
+			Reason:          string(refreshed.Status),
+			Message:         "verified disposable worktree before " + action,
+			DecisionSource:  types.DecisionSourceUnattended,
+			ActorType:       types.ActorSystem,
+			ApprovalSurface: types.ApprovalSurfaceDaemon,
+			ConsentMode:     types.ConsentModeAgentUnattended,
+		}); recordErr != nil {
+			return fmt.Errorf("record allowed boundary action: %w", recordErr)
+		}
+		return nil
 	}
 
 	// Determine auto-fix limit for this step
@@ -317,6 +404,19 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 		if outcome.AutoFixable && autoFixLimit > 0 && autoFixAttempts < autoFixLimit {
 			fixableFindings := autoFixableFindingsJSON(outcome.Findings)
 			if fixableFindings != "" {
+				approvalStatus := types.StepStatusAwaitingApproval
+				if sctx.Fixing {
+					approvalStatus = types.StepStatusFixReview
+				}
+				e.setAutomationGate(sctx, run.ID, sr.ID, stepName, approvalStatus, outcome.Findings)
+				if sctx.RequireSafeBoundary == nil {
+					sctx.Log("withholding auto-fix: boundary verifier unavailable")
+					goto approval
+				}
+				if err := sctx.RequireSafeBoundary("auto-fix " + string(stepName)); err != nil {
+					sctx.Log(fmt.Sprintf("withholding auto-fix: %v", err))
+					goto approval
+				}
 				autoFixAttempts++
 				telemetry.Track("fix", e.fixTelemetryFields("auto", stepName, findingsCount(fixableFindings), autoFixAttempts))
 				slog.Info("auto-fixing step", "step", stepName, "attempt", autoFixAttempts, "max", autoFixLimit)
@@ -334,6 +434,14 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 				e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFixing), "", "", "", nil)
 				phaseStart = time.Now()
 				sctx.Fixing = true
+				sctx.FixDecision = types.DecisionMetadata{
+					DecisionSource:  types.DecisionSourceUnattended,
+					ActorType:       types.ActorSystem,
+					ApprovalSurface: types.ApprovalSurfaceDaemon,
+					ConsentMode:     types.ConsentModeAgentUnattended,
+					GateID:          sctx.AutomationGateID,
+					GateFingerprint: sctx.AutomationGateFP,
+				}
 				sctx.PreviousFindings = fixableFindings
 				nextTrigger = "auto_fix"
 				continue
@@ -349,6 +457,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			break
 		}
 
+	approval:
 		// Freeze execution timer before entering approval wait.
 		executionMS += time.Since(phaseStart).Milliseconds()
 
@@ -364,6 +473,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 				diffText = d
 			}
 		}
+		e.setAutomationGate(sctx, run.ID, sr.ID, stepName, approvalStatus, outcome.Findings)
 
 		// Mark executor as ready to receive approval before updating DB or
 		// emitting events, so that callers who poll the DB status can
@@ -431,6 +541,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 				slog.Warn("failed to update step status in db", "step", stepName, "status", "fixing", "error", dbErr)
 			}
 			sctx.Fixing = true
+			sctx.FixDecision = response.decision
 			selectedFindings := filterFindingsJSON(outcome.Findings, response.findingIDs)
 			mergedFindings := mergeUserOverridesJSON(selectedFindings, response.instructions, response.addedFindings)
 			sctx.PreviousFindings = mergedFindings
@@ -477,6 +588,32 @@ func roundInsertID(_ string, inserted *db.StepRound, err error) string {
 		return ""
 	}
 	return inserted.ID
+}
+
+func (e *Executor) setAutomationGate(sctx *StepContext, runID, stepResultID string, stepName types.StepName, status types.StepStatus, findings string) {
+	if sctx == nil {
+		return
+	}
+	version, err := e.db.StepGateVersion(stepResultID)
+	if err != nil {
+		slog.Warn("failed to compute automation gate version", "run_id", runID, "step", stepName, "error", err)
+		version = db.FallbackStepGateVersion(stepResultID)
+	}
+	sctx.AutomationGateID = string(stepName)
+	sctx.AutomationGateFP = boundary.GateFingerprint(runID, stepName, status, version, findings)
+}
+
+func (sctx *StepContext) automationGateIdentity(runID string, stepName types.StepName, action string) (string, string) {
+	if sctx != nil {
+		if sctx.AutomationGateID != "" && sctx.AutomationGateFP != "" {
+			return sctx.AutomationGateID, sctx.AutomationGateFP
+		}
+		decision := types.NormalizeRespondDecisionMetadata(sctx.FixDecision)
+		if decision.GateID != "" && decision.GateFingerprint != "" {
+			return decision.GateID, decision.GateFingerprint
+		}
+	}
+	return string(stepName), boundary.GateFingerprint(runID, stepName, types.StepStatusRunning, "boundary-action", action)
 }
 
 // waitForApproval blocks until a user action arrives or context is cancelled.
@@ -539,6 +676,8 @@ func (e *Executor) emitRunEvent(eventType ipc.EventType, run *db.Run, repo *db.R
 		Error:  run.Error,
 		PRURL:  run.PRURL,
 	}
+	b := run.Boundary()
+	event.Boundary = &b
 	e.onEvent(event)
 }
 
@@ -563,6 +702,8 @@ func (e *Executor) emitStepEventWithFindingsDiffAndError(eventType ipc.EventType
 		Status:     &status,
 		DurationMS: durationMS,
 	}
+	b := run.Boundary()
+	event.Boundary = &b
 	stats := e.findingStatsForStep(run.ID, stepName)
 	if stats.ReportedFindings > 0 || stats.FixedFindings > 0 {
 		reported := stats.ReportedFindings

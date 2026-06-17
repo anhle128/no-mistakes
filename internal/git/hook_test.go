@@ -27,8 +27,11 @@ func TestPostReceiveHookScript(t *testing.T) {
 		t.Fatal("hook should read ref update args")
 	}
 
-	if !strings.Contains(script, "--gate \"$(pwd)\"") {
-		t.Fatal("hook should pass the gate path as a flag")
+	if !strings.Contains(script, "GATE_DIR=\"$(git rev-parse --absolute-git-dir") {
+		t.Fatal("hook should resolve the bare repo to an absolute gate path")
+	}
+	if !strings.Contains(script, "--gate \"$GATE_DIR\"") {
+		t.Fatal("hook should pass the absolute gate path as a flag")
 	}
 	if !strings.Contains(script, "daemon notify-push") {
 		t.Fatal("hook should invoke the CLI notify subcommand")
@@ -141,6 +144,7 @@ func TestPostReceiveHookScriptDoesNotEvaluatePushOptions(t *testing.T) {
 	cmd.Dir = bare
 	cmd.Stdin = strings.NewReader("oldrev newrev refs/heads/main\n")
 	cmd.Env = append(os.Environ(),
+		"PWD=.",
 		"GIT_PUSH_OPTION_COUNT=1",
 		"GIT_PUSH_OPTION_0=ok; touch "+markerPath,
 	)
@@ -157,6 +161,13 @@ func TestPostReceiveHookScriptDoesNotEvaluatePushOptions(t *testing.T) {
 	}
 	if !strings.Contains(string(args), "ok; touch "+markerPath) {
 		t.Fatalf("hook should forward push option literally, got:\n%s", args)
+	}
+	wantGate, err := filepath.EvalSymlinks(bare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "--gate\n"+wantGate+"\n") {
+		t.Fatalf("hook should pass an absolute gate path even when PWD is relative, got:\n%s", args)
 	}
 }
 

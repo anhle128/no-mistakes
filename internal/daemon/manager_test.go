@@ -7,13 +7,77 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
+	"github.com/kunchenguid/no-mistakes/internal/config"
+	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
 // --- RunManager integration tests ---
+
+func TestGateIdentityIgnoresClientMetadataAndUsesLatestRound(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	repo, err := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := d.InsertRun(repo.ID, "feature", "abc", "def")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, err := d.InsertStepResult(run.ID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := `{"findings":[{"id":"review-1","severity":"warning","description":"same"}],"summary":"1"}`
+	if err := d.SetStepFindings(step.ID, findings); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UpdateStepStatus(step.ID, types.StepStatusAwaitingApproval); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.InsertStepRound(step.ID, 1, "initial", &findings, nil, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := &RunManager{db: d}
+	meta := types.DecisionMetadata{GateID: "client-review", GateFingerprint: "client-fingerprint"}
+	gateID, first := mgr.gateIdentity(run.ID, types.StepReview, meta)
+	if gateID != string(types.StepReview) {
+		t.Fatalf("gateID = %q, want server step name", gateID)
+	}
+	version, err := d.StepGateVersion(step.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := boundary.GateFingerprint(run.ID, types.StepReview, types.StepStatusAwaitingApproval, version, findings)
+	if first != want {
+		t.Fatalf("fingerprint = %q, want server-computed %q", first, want)
+	}
+	if first == meta.GateFingerprint {
+		t.Fatal("fingerprint should not trust client metadata")
+	}
+	repeatGateID, repeat := mgr.gateIdentity(run.ID, types.StepReview, types.DecisionMetadata{GateFingerprint: "different-client-fingerprint"})
+	if repeatGateID != gateID || repeat != first {
+		t.Fatalf("same server gate should be stable, got gate=%q fp=%q want gate=%q fp=%q", repeatGateID, repeat, gateID, first)
+	}
+
+	if _, err := d.InsertStepRound(step.ID, 2, "auto_fix", &findings, nil, 100); err != nil {
+		t.Fatal(err)
+	}
+	_, second := mgr.gateIdentity(run.ID, types.StepReview, meta)
+	if second == first {
+		t.Fatal("same findings on a later round should produce a distinct gate fingerprint")
+	}
+}
 
 func TestPushReceivedTracksRunTelemetry(t *testing.T) {
 	recorder := &telemetryRecorder{}
@@ -120,6 +184,141 @@ func TestPushReceivedSkipStepsConfiguresExecutor(t *testing.T) {
 		if step.StepName == types.StepReview && step.Status != types.StepStatusSkipped {
 			t.Fatalf("review status = %s, want %s", step.Status, types.StepStatusSkipped)
 		}
+	}
+}
+
+func TestRespondWithUnattendedMetadataWithholdsUnknownBoundary(t *testing.T) {
+	review := &mockApprovalStep{name: types.StepReview}
+	p, d := startTestDaemonWithSteps(t, func() []pipeline.Step {
+		return []pipeline.Step{review}
+	})
+
+	repoID := "withheld-yolo-repo"
+	_, headSHA := setupTestGitRepo(t, p, d, repoID)
+
+	client, err := ipc.Dial(p.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	var pushResult ipc.PushReceivedResult
+	if err := client.Call(ipc.MethodPushReceived, &ipc.PushReceivedParams{
+		Gate: p.RepoDir(repoID),
+		Ref:  "refs/heads/main",
+		Old:  "0000000000000000000000000000000000000000",
+		New:  headSHA,
+	}, &pushResult); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		steps, _ := d.GetStepsByRun(pushResult.RunID)
+		for _, s := range steps {
+			if s.StepName == types.StepReview && s.Status == types.StepStatusAwaitingApproval {
+				goto awaiting
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("step never reached awaiting_approval")
+
+awaiting:
+	if err := os.RemoveAll(p.WorktreeDir(repoID, pushResult.RunID)); err != nil {
+		t.Fatal(err)
+	}
+
+	var respondResult ipc.RespondResult
+	err = client.Call(ipc.MethodRespond, &ipc.RespondParams{
+		RunID:           pushResult.RunID,
+		Step:            types.StepReview,
+		Action:          types.ActionApprove,
+		DecisionSource:  types.DecisionSourceUnattended,
+		ActorType:       types.ActorAgent,
+		ApprovalSurface: types.ApprovalSurfaceAXI,
+		ConsentMode:     types.ConsentModeYes,
+		GateID:          "review",
+		GateFingerprint: "fp",
+	}, &respondResult)
+	if err == nil {
+		t.Fatal("expected unattended response to be withheld")
+	}
+	if !strings.Contains(err.Error(), "withheld") {
+		t.Fatalf("error = %v, want withheld reason", err)
+	}
+
+	steps, err := d.GetStepsByRun(pushResult.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) == 0 || steps[0].Status != types.StepStatusAwaitingApproval {
+		t.Fatalf("step status = %+v, want still awaiting approval", steps)
+	}
+	events, err := d.GetRunEvents(pushResult.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.EventType == db.RunEventGateAutomationWithheld && event.Status == types.GateAutomationWithheld {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected withheld gate automation event, got %+v", events)
+	}
+}
+
+func TestRespondWithUnattendedMetadataFailsWhenAutomationEventCannotPersist(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	repo, err := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := d.InsertRun(repo.ID, "feature", "abc", "def")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, err := d.InsertStepResult(run.ID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UpdateStepStatus(step.ID, types.StepStatusAwaitingApproval); err != nil {
+		t.Fatal(err)
+	}
+	p := paths.WithRoot(t.TempDir())
+	if err := p.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	mgr := &RunManager{
+		db:        d,
+		paths:     p,
+		executors: map[string]*pipeline.Executor{run.ID: pipeline.NewExecutor(d, p, &config.Config{}, nil, nil, nil)},
+	}
+	if err := d.DeleteRepo(repo.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	err = mgr.HandleRespondWithMetadata(run.ID, types.StepReview, types.ActionApprove, nil, nil, nil, types.DecisionMetadata{
+		DecisionSource:  types.DecisionSourceUnattended,
+		ActorType:       types.ActorAgent,
+		ApprovalSurface: types.ApprovalSurfaceAXI,
+		ConsentMode:     types.ConsentModeYes,
+	})
+	if err == nil {
+		t.Fatal("expected automation audit persistence failure")
+	}
+	if !strings.Contains(err.Error(), "record gate automation event") {
+		t.Fatalf("error = %v, want audit persistence failure before executor response", err)
+	}
+	if strings.Contains(err.Error(), "no step awaiting approval") {
+		t.Fatalf("error = %v, response reached executor instead of failing closed on audit persistence", err)
 	}
 }
 

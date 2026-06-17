@@ -1,0 +1,19 @@
+agent: codex
+
+commands:
+  test: "make test"
+  lint: "make lint && make docs-build"
+  format: "make fmt"
+
+ignore_patterns:
+  - "*.generated.go"
+  - "vendor/**"
+  - "bin/**"
+  - "tmp/**"
+  - "docs/dist/**"
+  - ".no-mistakes/evidence/**"
+
+test:
+  evidence:
+    store_in_repo: true
+    dir: .no-mistakes/evidence

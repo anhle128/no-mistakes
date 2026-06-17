@@ -109,6 +109,14 @@ Dim content inside a subtle frame:
 ╰──────────────────────────────────────────╯
 ```
 
+## Automation Notice
+
+When yolo mode or AXI `--yes` is withheld, show a warning-styled `Automation`
+box near the other right-column context. It starts with `YOLO withheld`, then
+shows the requested mode, gate, reason, daemon message, and dim recovery
+options. Do not hide the normal findings or action bar; the user still needs
+the manual gate controls.
+
 ## Footer
 
 Minimal dim hint at the very bottom, outside all boxes:

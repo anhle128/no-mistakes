@@ -128,6 +128,20 @@ Symptom: a run stops with a failed step.
 Check the per-step log at `~/.no-mistakes/logs/<runID>/<step>.log`.
 Fatal step errors are appended to that log, so failures such as rejected pushes include the returned error output there instead of only appearing in `daemon.log`.
 
+## Yolo or `--yes` was withheld
+
+Symptom: AXI output includes `automation.status: withheld`, or the TUI shows a withheld automation notice instead of auto-resolving the gate.
+
+No-mistakes only honors unattended gate decisions when it can prove the run is still inside the managed disposable worktree for that repo and run. The gate remains paused when the worktree is missing, points at the user's primary checkout, has unexpected git metadata, or the proof cannot be refreshed.
+
+Check the active run:
+
+```sh
+no-mistakes axi status
+```
+
+Read the `boundary` and `automation` fields. If the boundary is `unknown`, the safest recovery is usually to abort or let the run fail, then start a fresh run so the daemon creates a new managed worktree. If the user still wants to proceed at the current gate, use the TUI or `no-mistakes axi respond` without `--yes` after they give an explicit per-gate decision.
+
 ## `git push no-mistakes` doesn't start a pipeline
 
 Symptom: push succeeds but `no-mistakes` shows no active run.

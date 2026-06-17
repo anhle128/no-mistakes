@@ -55,6 +55,9 @@ Rules:
 Previous lint findings to address:
 ` + sanitizedPreviousFindingsForPrompt(sctx.PreviousFindings)
 		}
+		if err := requireSafeAutomaticSourceWork(sctx, "fix lint issues"); err != nil {
+			return nil, err
+		}
 		result, err := sctx.Agent.Run(ctx, agent.RunOpts{
 			Prompt:     prompt,
 			CWD:        sctx.WorkDir,
@@ -76,7 +79,7 @@ Previous lint findings to address:
 		if err != nil {
 			sctx.Log(fmt.Sprintf("warning: could not parse lint summary: %v", err))
 		}
-		if err := commitAgentFixes(sctx, s.Name(), summary, "fix lint issues"); err != nil {
+		if err := commitAgentFixes(sctx, s.Name(), summary, "fix lint issues", true); err != nil {
 			return nil, err
 		}
 

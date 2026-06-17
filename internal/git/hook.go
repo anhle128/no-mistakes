@@ -35,11 +35,12 @@ NM_BIN=` + shellSingleQuote(command) + `
 if [ ! -f "$NM_BIN" ]; then
   NM_BIN="$(command -v no-mistakes 2>/dev/null || echo no-mistakes)"
 fi
-LOG="$(pwd)/notify-push.log"
+GATE_DIR="$(git rev-parse --absolute-git-dir 2>/dev/null || /bin/pwd -P 2>/dev/null || pwd -P 2>/dev/null || pwd)"
+LOG="$GATE_DIR/notify-push.log"
 nm_ts() { date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || echo unknown; }
 notify_failed=0
 while read oldrev newrev refname; do
-	  set -- --gate "$(pwd)" \
+	  set -- --gate "$GATE_DIR" \
 	    --ref "$refname" \
 	    --old "$oldrev" \
 	    --new "$newrev"

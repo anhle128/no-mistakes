@@ -11,6 +11,7 @@ import (
 
 	toon "github.com/toon-format/toon-go"
 
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/cimonitor"
 	"github.com/kunchenguid/no-mistakes/internal/gate"
 	"github.com/kunchenguid/no-mistakes/internal/git"
@@ -308,11 +309,24 @@ func driveRun(ctx context.Context, progress io.Writer, client *ipc.Client, runID
 			if !autoApprove {
 				return run, false, nil
 			}
+			fingerprint := boundary.GateFingerprint(run.ID, types.StepName(gate.Name), types.StepStatus(gate.Status), "client", gate.FindingsJSON)
 			action, findingIDs := gateResolution(gate, fixedSteps[gate.Name])
 			if action == types.ActionFix {
 				fixedSteps[gate.Name] = true
 			}
-			if err := sendRespond(client, runID, types.StepName(gate.Name), action, findingIDs, nil, nil); err != nil {
+			meta := types.DecisionMetadata{
+				DecisionSource:  types.DecisionSourceUnattended,
+				ActorType:       types.ActorAgent,
+				ApprovalSurface: types.ApprovalSurfaceAXI,
+				ConsentMode:     types.ConsentModeYes,
+				GateID:          gate.Name,
+				GateFingerprint: fingerprint,
+			}
+			if err := sendRespondWithMetadata(client, runID, types.StepName(gate.Name), action, findingIDs, nil, nil, meta); err != nil {
+				refreshed, refreshErr := getRunInfo(client, runID)
+				if refreshErr == nil && runHasWithheldAutomation(refreshed, gate.Name, fingerprint) {
+					return refreshed, false, nil
+				}
 				return nil, false, fmt.Errorf("auto-resolve %s: %w", gate.Name, err)
 			}
 			if err := waitStepLeavesGate(ctx, client, runID, gate.Name, gate.Status); err != nil {
@@ -330,6 +344,13 @@ func driveRun(ctx context.Context, progress io.Writer, client *ipc.Client, runID
 			return nil, false, err
 		}
 	}
+}
+
+func runHasWithheldAutomation(run *ipc.RunInfo, gateID, _ string) bool {
+	return run != nil &&
+		run.GateAutomation != nil &&
+		run.GateAutomation.GateID == gateID &&
+		run.GateAutomation.Status == types.GateAutomationWithheld
 }
 
 // ciReadyToMerge reports whether the CI step is actively monitoring and its logs
@@ -424,13 +445,24 @@ func getRunInfo(client *ipc.Client, runID string) (*ipc.RunInfo, error) {
 
 // sendRespond issues an approval action to the daemon for a step.
 func sendRespond(client *ipc.Client, runID string, step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, added []types.Finding) error {
+	return sendRespondWithMetadata(client, runID, step, action, findingIDs, instructions, added, types.DecisionMetadata{})
+}
+
+func sendRespondWithMetadata(client *ipc.Client, runID string, step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, added []types.Finding, meta types.DecisionMetadata) error {
+	meta = types.NormalizeRespondDecisionMetadata(meta)
 	params := &ipc.RespondParams{
-		RunID:         runID,
-		Step:          step,
-		Action:        action,
-		FindingIDs:    findingIDs,
-		Instructions:  instructions,
-		AddedFindings: added,
+		RunID:           runID,
+		Step:            step,
+		Action:          action,
+		FindingIDs:      findingIDs,
+		Instructions:    instructions,
+		AddedFindings:   added,
+		DecisionSource:  meta.DecisionSource,
+		ActorType:       meta.ActorType,
+		ApprovalSurface: meta.ApprovalSurface,
+		ConsentMode:     meta.ConsentMode,
+		GateID:          meta.GateID,
+		GateFingerprint: meta.GateFingerprint,
 	}
 	var result ipc.RespondResult
 	if err := client.Call(ipc.MethodRespond, params, &result); err != nil {
@@ -480,6 +512,7 @@ func renderDriveResult(cmd *cobra.Command, run *ipc.RunInfo, ciReady bool) error
 	}
 
 	if gate, ok := rv.awaitingStep(); ok {
+		fields = append(fields, automationFields(rv.GateAutomation)...)
 		fields = append(fields, gateFields(gate)...)
 		emitDoc(cmd, fields...)
 		return nil
@@ -650,7 +683,12 @@ func runAxiRespond(cmd *cobra.Command, ra respondArgs) error {
 		}
 	}
 
-	if err := sendRespond(env.client, runID, stepName, act, findingIDs, instructions, added); err != nil {
+	if err := sendRespondWithMetadata(env.client, runID, stepName, act, findingIDs, instructions, added, types.DecisionMetadata{
+		DecisionSource:  types.DecisionSourceManual,
+		ActorType:       types.ActorAgent,
+		ApprovalSurface: types.ApprovalSurfaceAXI,
+		ConsentMode:     types.ConsentModeManual,
+	}); err != nil {
 		return emitError(cmd, 1, fmt.Sprintf("respond to %s: %v", stepName, err))
 	}
 

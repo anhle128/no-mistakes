@@ -93,6 +93,7 @@ $ no-mistakes
 ```
 
 在 TUI 里你逐条处理 **finding**：**auto-fix** 类自动替你应用（或由你 approve 放行），**ask-user** 类需要你判断，由你 approve、fix 或 skip。每项检查变绿后，网关会把你的分支转发到上游并替你开好 PR —— 不用手动 `git push origin`，也不用手写 PR 正文。想让编码 agent 无人值守地走完同一套流程？用 `/no-mistakes`（见下文）。
+TUI yolo mode 和 AXI `--yes` 这类无人值守的网关快捷方式，只有在 daemon 能证明这次运行仍处在它管理的用完即弃 worktree 内时才会自动处理；否则网关会继续暂停，等待你手动决定。
 
 ## 触发网关的三种方式
 

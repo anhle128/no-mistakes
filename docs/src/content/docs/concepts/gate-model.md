@@ -52,16 +52,17 @@ That is a core design choice, not an implementation detail.
 2. Git writes the push into the local bare gate repo, so the push itself stays fast.
 3. The gate repo's `post-receive` hook notifies the daemon.
 4. The daemon creates a detached worktree for this run.
-5. The pipeline runs in order: `intent -> rebase -> review -> test -> document -> lint -> push -> pr -> ci`.
-6. If a step pauses, you can attach with the TUI or use `no-mistakes axi respond` to approve, fix, skip, or abort.
-7. After local checks pass, the push step forwards the branch upstream and the PR step creates or updates the pull request.
-8. The CI step keeps watching the open PR until it is merged or closed, and can auto-fix failures or merge conflicts when supported.
+5. The daemon records a boundary proof for that worktree and refreshes it before unattended source-changing or remote-advancing actions.
+6. The pipeline runs in order: `intent -> rebase -> review -> test -> document -> lint -> push -> pr -> ci`.
+7. If a step pauses, you can attach with the TUI or use `no-mistakes axi respond` to approve, fix, skip, or abort.
+8. After local checks pass, the push step forwards the branch upstream and the PR step creates or updates the pull request.
+9. The CI step keeps watching the open PR until it is merged or closed, and can auto-fix failures or merge conflicts when supported.
    While it watches, the TUI and terminal title surface a `Checks passed` signal once checks are green and the PR is mergeable, and `no-mistakes axi` returns `outcome: checks-passed` with instructions to summarize the run and list any pipeline fixes, so agents stop and ask you to review and merge it.
 
 **Key design decisions:**
 
 - **Named remote** - `origin` is never hijacked. You push to `no-mistakes` on purpose, so regular `git push` still works normally.
-- **Disposable worktrees** - each run happens in its own detached worktree under `~/.no-mistakes/worktrees/`. The daemon can safely modify files, run tests, and commit fixes without touching your working directory.
+- **Disposable worktrees** - each run happens in its own detached worktree under `~/.no-mistakes/worktrees/`. The daemon can safely modify files, run tests, and commit fixes without touching your working directory. Unattended fixes, yolo/`--yes` gate responses, push, PR writes, and CI auto-fixes require a fresh proof that the current run still points at that managed worktree and its gate repo.
 - **Fixed pipeline** - the step order is opinionated and not configurable: `intent → rebase → review → test → document → lint → push → pr → ci`. What you _can_ configure is the commands each step runs, how many auto-fix attempts are allowed, and whether transcript-based intent extraction is used when intent is not supplied directly.
 
 ## Why it is built this way
@@ -108,6 +109,7 @@ A long-running background process that manages pipeline runs. It:
 - Writes its identity record to `~/.no-mistakes/daemon.pid`
 - Serializes concurrent pushes to the same branch (new push cancels the in-progress run)
 - Creates and cleans up worktrees
+- Verifies and refreshes execution-boundary state before unattended source-changing or remote-advancing actions
 - Persists state to SQLite
 - Streams events to connected TUI clients via IPC
 
@@ -141,7 +143,7 @@ Communication between the CLI and daemon uses JSON-RPC 2.0 over the Unix socket.
 ### Database
 
 SQLite at `~/.no-mistakes/state.sqlite` tracks repos, runs, step results, step
-rounds, and derived intent summaries. Step rounds record each execution attempt
+rounds, run boundary state, gate automation audit events, and derived intent summaries. Step rounds record each execution attempt
 (initial, auto-fix) with its own findings and duration, plus selected finding
 IDs, whether the selection came from the user or auto-fix filtering, the merged
 finding payload actually sent to the fix agent for that round, and the one-line
@@ -153,6 +155,7 @@ agent-supplied AXI intent is stored directly on the run. Raw transcript text is
 not stored in this database. Legacy `user_fix` rounds are still read as
 `auto-fix` for backward
 compatibility.
+Boundary and automation events record why unattended automation was allowed or withheld so AXI, the TUI, and terminal status can show the same recovery guidance after reconnects.
 
 ## Local state
 

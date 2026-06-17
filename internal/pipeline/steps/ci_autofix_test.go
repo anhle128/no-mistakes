@@ -106,6 +106,184 @@ func TestCIStep_CIFailureAutoFix(t *testing.T) {
 	}
 }
 
+func TestCIStep_PushUpdatedHeadSHARequiresSafeBoundary(t *testing.T) {
+	upstream := t.TempDir()
+	gitCmd(t, upstream, "init", "--bare")
+
+	dir := t.TempDir()
+	gitCmd(t, dir, "init")
+	gitCmd(t, dir, "config", "user.name", "test")
+	gitCmd(t, dir, "config", "user.email", "test@test.com")
+	gitCmd(t, dir, "checkout", "-b", "main")
+	os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init"), 0o644)
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "initial")
+	baseSHA := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "remote", "add", "origin", upstream)
+	gitCmd(t, dir, "push", "origin", "main")
+
+	gitCmd(t, dir, "checkout", "-b", "feature")
+	os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\n"), 0o644)
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "feature")
+	oldHead := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "push", "origin", "feature")
+
+	os.WriteFile(filepath.Join(dir, "ci-fix.txt"), []byte("fixed\n"), 0o644)
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "ci fix")
+	newHead := gitCmd(t, dir, "rev-parse", "HEAD")
+
+	sctx := newTestContext(t, &mockAgent{name: "test"}, dir, baseSHA, oldHead, config.Commands{})
+	sctx.Repo.UpstreamURL = upstream
+	sctx.Run.Branch = "refs/heads/feature"
+	sctx.Run.HeadSHA = oldHead
+	sctx.RequireSafeBoundary = func(action string) error {
+		if action != "push CI fix" {
+			t.Fatalf("boundary action = %q, want push CI fix", action)
+		}
+		return errors.New("unsafe boundary")
+	}
+
+	pushed, err := (&CIStep{}).pushUpdatedHeadSHA(sctx, newHead)
+	if err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("pushUpdatedHeadSHA error = %v, want unsafe boundary", err)
+	}
+	if pushed {
+		t.Fatal("pushed = true, want false")
+	}
+	if got := gitCmd(t, dir, "ls-remote", upstream, "refs/heads/feature"); !strings.Contains(got, oldHead) {
+		t.Fatalf("remote ref moved despite withheld boundary: %s", got)
+	}
+}
+
+func TestCIStep_CommitAndPushRequiresSafeBoundaryBeforeCommit(t *testing.T) {
+	upstream := t.TempDir()
+	gitCmd(t, upstream, "init", "--bare")
+
+	dir := t.TempDir()
+	gitCmd(t, dir, "init")
+	gitCmd(t, dir, "config", "user.name", "test")
+	gitCmd(t, dir, "config", "user.email", "test@test.com")
+	gitCmd(t, dir, "checkout", "-b", "main")
+	os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init"), 0o644)
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "initial")
+	baseSHA := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "remote", "add", "origin", upstream)
+	gitCmd(t, dir, "push", "origin", "main")
+
+	gitCmd(t, dir, "checkout", "-b", "feature")
+	os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\n"), 0o644)
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "feature")
+	oldHead := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "push", "origin", "feature")
+
+	if err := os.WriteFile(filepath.Join(dir, "ci-fix.txt"), []byte("fixed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sctx := newTestContext(t, &mockAgent{name: "test"}, dir, baseSHA, oldHead, config.Commands{})
+	sctx.Repo.UpstreamURL = upstream
+	sctx.Run.Branch = "refs/heads/feature"
+	sctx.Run.HeadSHA = oldHead
+	sctx.RequireSafeBoundary = func(action string) error {
+		if action != "commit CI fix" {
+			t.Fatalf("boundary action = %q, want commit CI fix", action)
+		}
+		return errors.New("unsafe boundary")
+	}
+
+	pushed, err := (&CIStep{}).commitAndPushWithBoundary(sctx, true)
+	if err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("commitAndPushWithBoundary error = %v, want unsafe boundary", err)
+	}
+	if pushed {
+		t.Fatal("pushed = true, want false")
+	}
+	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != oldHead {
+		t.Fatalf("local HEAD moved despite commit boundary check: %s", got)
+	}
+	if got := gitCmd(t, dir, "ls-remote", upstream, "refs/heads/feature"); !strings.Contains(got, oldHead) {
+		t.Fatalf("remote ref moved despite commit boundary check: %s", got)
+	}
+}
+
+func TestCIStep_ManualCIFixDoesNotUseUnattendedBoundaryGuard(t *testing.T) {
+	upstream := t.TempDir()
+	gitCmd(t, upstream, "init", "--bare")
+
+	dir := t.TempDir()
+	gitCmd(t, dir, "init")
+	gitCmd(t, dir, "config", "user.name", "test")
+	gitCmd(t, dir, "config", "user.email", "test@test.com")
+	gitCmd(t, dir, "checkout", "-b", "main")
+	os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init"), 0o644)
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "initial")
+	baseSHA := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "remote", "add", "origin", upstream)
+	gitCmd(t, dir, "push", "origin", "main")
+
+	gitCmd(t, dir, "checkout", "-b", "feature")
+	os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\n"), 0o644)
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "feature")
+	oldHead := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "push", "origin", "feature")
+
+	checksJSON := `[{"name":"test","state":"FAILURE","bucket":"fail"}]`
+	env := fakeCIGH(t, "OPEN", checksJSON)
+
+	agentCalled := false
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			agentCalled = true
+			os.WriteFile(filepath.Join(opts.CWD, "manual-ci-fix.txt"), []byte("fixed\n"), 0o644)
+			return &agent.Result{}, nil
+		},
+	}
+	sctx := newTestContext(t, ag, dir, baseSHA, oldHead, config.Commands{})
+	sctx.Env = env
+	sctx.Repo.UpstreamURL = upstream
+	sctx.Run.Branch = "refs/heads/feature"
+	prURL := "https://github.com/test/repo/pull/42"
+	sctx.Run.PRURL = &prURL
+	sctx.Fixing = true
+	sctx.Config.CITimeout = 30 * time.Second
+
+	guardCalls := 0
+	sctx.RequireSafeBoundary = func(action string) error {
+		guardCalls++
+		return errors.New("unsafe boundary")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sctx.Ctx = ctx
+
+	step := &CIStep{
+		waitForNextPoll: func(ctx context.Context, interval time.Duration) error {
+			cancel()
+			return ctx.Err()
+		},
+	}
+	_, err := step.Execute(sctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected polling to continue after manual CI fix, got %v", err)
+	}
+	if guardCalls != 0 {
+		t.Fatalf("manual CI fix called unattended boundary guard %d time(s)", guardCalls)
+	}
+	if !agentCalled {
+		t.Fatal("expected manual CI fix to run the agent")
+	}
+	if got := gitCmd(t, dir, "ls-remote", upstream, "refs/heads/feature"); strings.Contains(got, oldHead) {
+		t.Fatalf("manual CI fix did not push a new head: %s", got)
+	}
+}
+
 func TestCIStep_CIAutoFixDisabledWithZero(t *testing.T) {
 	t.Parallel()
 	dir, baseSHA, headSHA := setupGitRepo(t)

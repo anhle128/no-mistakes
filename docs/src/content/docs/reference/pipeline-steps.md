@@ -14,6 +14,7 @@ In the TUI, yolo mode is an explicit override that auto-resolves paused steps: `
 Every pipeline agent invocation is prompt-steered to keep intentional writes inside the run worktree and avoid mutating system state outside it.
 This is a soft boundary, not OS-level sandbox enforcement.
 The steering still allows requested test evidence under the managed temporary `no-mistakes-evidence` directory or the configured in-repo evidence directory, plus incidental temp or cache writes from normal development tools.
+For unattended decisions, no-mistakes also verifies a hard execution boundary before acting: yolo mode, AXI `--yes`, automatic fix loops, push, PR creation or update, and CI auto-fixes continue only when the run is still in the managed disposable worktree for that repo and run. Unsafe or unknown boundary state withholds automation and leaves the step paused or failed with recovery guidance.
 
 ## Intent
 
@@ -125,6 +126,7 @@ When `commands.lint` is empty, unresolved findings pause for approval instead of
 Pushes the validated branch to the real upstream remote.
 
 **Behavior:**
+- Requires a fresh safe boundary proof before formatting, committing, or pushing
 - If `commands.format` is set, runs it first
 - Stages in-repo test evidence artifacts when `test.evidence.store_in_repo` is enabled and the evidence directory is not ignored by Git
 - Commits any uncommitted agent changes with message `no-mistakes: apply agent fixes`
@@ -148,6 +150,7 @@ Creates or updates a pull request.
 
 **Behavior:**
 - Checks for an existing PR on the branch
+- Requires a fresh safe boundary proof before creating or updating the provider PR
 - If one exists, updates it. If not, creates a new one.
 - Uses the provider CLI for GitHub/GitLab and the Bitbucket API for Bitbucket Cloud
 - PR title: agent-generated with user intent when available, in conventional commit format (`type(scope): description` or `type: description`); user-facing product impact should use `feat` or `fix` so release automation can pick it up; when a scope is used, it should be the primary affected real module/package from the changed paths and kept broad rather than file-level
@@ -175,6 +178,7 @@ Monitors PR health after creation and auto-fixes CI failures. Mergeability polli
 - The ready signal clears if checks start running again, new failures appear, provider state becomes uncertain, or the PR is merged, closed, or declined
 - Waits a 60s grace period before trusting empty results (CI checks may not have registered yet)
 - If CI failures or, on GitHub or GitLab, a merge conflict are already known while other checks are still pending: waits for all checks to finish before attempting an auto-fix
+- Before any CI auto-fix or follow-up push, requires a fresh safe boundary proof
 - On CI failure: fetches failed job logs (GitHub via `gh run view --log-failed`, GitLab via `glab ci trace`, Bitbucket Cloud via failed pipeline step logs), sends them to the agent with user intent when available, and commits and force-pushes only if the agent produces changes
 - On GitHub or GitLab merge conflict: asks the agent to rebase onto the latest default-branch tip and make the smallest correct root-cause fix for the conflicts, using user intent when available
 - If both CI failures and a GitHub or GitLab merge conflict are present: fixes both in the same attempt

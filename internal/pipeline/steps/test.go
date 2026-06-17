@@ -116,6 +116,9 @@ Previous test findings to address:
 
 	useEvidenceAgent := testCmd == "" || cleanedUserIntent(sctx) != ""
 	if useEvidenceAgent {
+		if err := requireSafeAutomaticSourceWork(sctx, "collect test evidence"); err != nil {
+			return nil, err
+		}
 		evidenceLocation := resolveTestEvidenceLocation(sctx.WorkDir, sctx.Run.Branch, sctx.Run.ID, sctx.Config.Test.Evidence)
 		evidenceDir := evidenceLocation.Dir
 		if evidenceLocation.StoreInRepo && gitIgnoresPath(ctx, sctx.WorkDir, evidenceDir) {

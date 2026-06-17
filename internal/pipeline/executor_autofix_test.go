@@ -2,17 +2,20 @@ package pipeline
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/config"
+	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
 func TestExecutor_AutoFixTriggersWithoutApproval(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	// Config with auto-fix enabled for review (max 3 attempts)
 	cfg := &config.Config{AutoFix: config.AutoFix{Review: 3}}
@@ -59,7 +62,7 @@ func TestExecutor_AutoFixTriggersWithoutApproval(t *testing.T) {
 
 func TestExecutor_AutoFixRespectsMaxAttempts(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	// Config with auto-fix limited to 2 attempts for lint
 	cfg := &config.Config{AutoFix: config.AutoFix{Lint: 2}}
@@ -109,7 +112,7 @@ func TestExecutor_AutoFixRespectsMaxAttempts(t *testing.T) {
 
 func TestExecutor_AutoFixDisabledWithZero(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	// Config with auto-fix disabled for review
 	cfg := &config.Config{AutoFix: config.AutoFix{Review: 0}}
@@ -154,7 +157,7 @@ func TestExecutor_AutoFixDisabledWithZero(t *testing.T) {
 
 func TestExecutor_AutoFixNilConfigUsesDefaults(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	// nil config - executor should not panic and should use no auto-fix (backwards compat)
 	callCount := 0
@@ -189,7 +192,7 @@ func TestExecutor_AutoFixNilConfigUsesDefaults(t *testing.T) {
 
 func TestExecutor_AutoFixEmitsEvents(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	cfg := &config.Config{AutoFix: config.AutoFix{Lint: 1}}
 
@@ -224,9 +227,145 @@ func TestExecutor_AutoFixEmitsEvents(t *testing.T) {
 	}
 }
 
+func TestExecutor_WithholdsAutoFixWhenBoundaryProofMissing(t *testing.T) {
+	database, p, run, repo := setupTest(t)
+	run.BoundaryStatus = types.BoundarySafe
+	run.BoundaryReason = types.BoundaryReasonVerifiedRunWorktree
+	run.BoundaryVerifierVersion = "test"
+	if err := database.UpdateRunBoundary(run.ID, run.Boundary()); err != nil {
+		t.Fatal(err)
+	}
+	workDir := t.TempDir()
+
+	cfg := &config.Config{AutoFix: config.AutoFix{Review: 1}}
+	callCount := 0
+	step := &adaptiveCallStep{
+		name: types.StepReview,
+		fn: func(sctx *StepContext) (*StepOutcome, error) {
+			callCount++
+			return &StepOutcome{
+				NeedsApproval: true,
+				AutoFixable:   true,
+				Findings:      `{"findings":[{"severity":"error","description":"bug","action":"auto-fix"}],"summary":"1 issue"}`,
+			}, nil
+		},
+	}
+	exec := NewExecutor(database, p, cfg, nil, []Step{step}, nil)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- exec.Execute(context.Background(), run, repo, workDir)
+	}()
+
+	waitForStepStatus(t, database, run.ID, types.StepReview, types.StepStatusAwaitingApproval)
+	if callCount != 1 {
+		t.Fatalf("callCount = %d, want no auto-fix retry", callCount)
+	}
+	events, err := database.GetRunEvents(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.EventType == db.RunEventGateAutomationWithheld && event.Status == types.GateAutomationWithheld {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected withheld auto-fix event, got %+v", events)
+	}
+	steps, err := database.GetStepsByRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reviewStep *db.StepResult
+	for _, step := range steps {
+		if step.StepName == types.StepReview {
+			reviewStep = step
+			break
+		}
+	}
+	if reviewStep == nil {
+		t.Fatal("review step not found")
+	}
+	if reviewStep.FindingsJSON == nil {
+		t.Fatal("review step findings not persisted")
+	}
+	version, err := database.StepGateVersion(reviewStep.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := boundary.GateFingerprint(run.ID, types.StepReview, types.StepStatusAwaitingApproval, version, *reviewStep.FindingsJSON)
+	event, err := database.GetGateAutomationEvent(run.ID, string(types.StepReview), fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event == nil || event.Status != types.GateAutomationWithheld {
+		t.Fatalf("current gate automation event = %+v, want withheld at fingerprint %q", event, fingerprint)
+	}
+	if err := exec.Respond(types.StepReview, types.ActionApprove, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
+func TestExecutor_DoesNotAutoFixWhenAllowedAuditEventCannotPersist(t *testing.T) {
+	database, p, run, repo := setupTest(t)
+	workDir := setupManagedRunWorktree(t, p, repo, run)
+
+	cfg := &config.Config{AutoFix: config.AutoFix{Review: 1}}
+	var callCount atomic.Int32
+	step := &adaptiveCallStep{
+		name: types.StepReview,
+		fn: func(sctx *StepContext) (*StepOutcome, error) {
+			n := callCount.Add(1)
+			if n == 1 {
+				if err := database.DeleteRepo(repo.ID); err != nil {
+					return nil, err
+				}
+				return &StepOutcome{
+					NeedsApproval: true,
+					AutoFixable:   true,
+					Findings:      `{"findings":[{"severity":"error","description":"bug","action":"auto-fix"}],"summary":"1 issue"}`,
+				}, nil
+			}
+			return &StepOutcome{}, nil
+		},
+	}
+	exec := NewExecutor(database, p, cfg, nil, []Step{step}, nil)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- exec.Execute(context.Background(), run, repo, workDir)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if callCount.Load() > 1 {
+			t.Fatalf("auto-fix retried after allowed audit event failed to persist")
+		}
+		if err := exec.Respond(types.StepReview, types.ActionApprove, nil); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if callCount.Load() != 1 {
+		t.Fatalf("callCount = %d, want exactly one pass", callCount.Load())
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor timed out")
+	}
+}
+
 func TestExecutor_DoesNotAutoFixManualApprovalOutcome(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	cfg := &config.Config{AutoFix: config.AutoFix{Test: 3}}
 
@@ -271,7 +410,7 @@ func TestExecutor_DoesNotAutoFixManualApprovalOutcome(t *testing.T) {
 
 func TestExecutor_AutoFixInfoFindings(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	cfg := &config.Config{AutoFix: config.AutoFix{Review: 3}}
 
@@ -310,7 +449,7 @@ func TestExecutor_AutoFixInfoFindings(t *testing.T) {
 
 func TestExecutor_AutoFixSkipsHumanReviewFindings(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	cfg := &config.Config{AutoFix: config.AutoFix{Review: 3}}
 
@@ -356,7 +495,7 @@ func TestExecutor_AutoFixSkipsHumanReviewFindings(t *testing.T) {
 
 func TestExecutor_HumanReviewFindingsRequireApprovalWithoutNeedsApprovalFlag(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	step := &adaptiveCallStep{
 		name: types.StepReview,
@@ -392,7 +531,7 @@ func TestExecutor_HumanReviewFindingsRequireApprovalWithoutNeedsApprovalFlag(t *
 
 func TestExecutor_AutoFixMixedFindings(t *testing.T) {
 	database, p, run, repo := setupTest(t)
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	cfg := &config.Config{AutoFix: config.AutoFix{Review: 3}}
 

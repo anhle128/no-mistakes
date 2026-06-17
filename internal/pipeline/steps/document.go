@@ -91,6 +91,9 @@ Previous documentation findings to address:
 ` + sanitizedPreviousFindingsForPrompt(sctx.PreviousFindings)
 	}
 
+	if err := requireSafeAutomaticSourceWork(sctx, "update documentation"); err != nil {
+		return nil, err
+	}
 	result, err := sctx.Agent.Run(ctx, agent.RunOpts{
 		Prompt:     prompt,
 		CWD:        sctx.WorkDir,
@@ -104,7 +107,7 @@ Previous documentation findings to address:
 	// Commit whatever documentation the agent edited, regardless of how
 	// trustworthy its structured output turns out to be.
 	commitSummary := extractDocumentSummary(result.Output, "")
-	if err := commitAgentFixes(sctx, s.Name(), commitSummary, "update documentation"); err != nil {
+	if err := commitAgentFixes(sctx, s.Name(), commitSummary, "update documentation", true); err != nil {
 		return nil, err
 	}
 

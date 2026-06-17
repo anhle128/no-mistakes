@@ -44,12 +44,37 @@ func hasBlockingFindings(items []Finding) bool {
 	return false
 }
 
-func commitAgentFixes(sctx *pipeline.StepContext, stepName types.StepName, summary, fallbackSummary string) error {
+func requireSafeAutomaticSourceWork(sctx *pipeline.StepContext, action string) error {
+	if sctx != nil && sctx.Fixing {
+		decision := types.NormalizeRespondDecisionMetadata(sctx.FixDecision)
+		if decision.DecisionSource != types.DecisionSourceUnattended {
+			return nil
+		}
+	}
+	return requireSafeBoundary(sctx, action)
+}
+
+func requireSafeBoundary(sctx *pipeline.StepContext, action string) error {
+	if strings.TrimSpace(action) == "" {
+		action = "automation"
+	}
+	if sctx == nil || sctx.RequireSafeBoundary == nil {
+		return fmt.Errorf("withheld %s: boundary verifier unavailable", action)
+	}
+	return sctx.RequireSafeBoundary(action)
+}
+
+func commitAgentFixes(sctx *pipeline.StepContext, stepName types.StepName, summary, fallbackSummary string, requireBoundary bool) error {
 	ctx := sctx.Ctx
 	status, _ := git.Run(ctx, sctx.WorkDir, "status", "--porcelain")
 	if strings.TrimSpace(status) == "" {
 		sctx.Log("no agent changes to commit")
 		return nil
+	}
+	if requireBoundary {
+		if err := requireSafeAutomaticSourceWork(sctx, "commit "+string(stepName)+" changes"); err != nil {
+			return err
+		}
 	}
 	if _, err := git.Run(ctx, sctx.WorkDir, "add", "-A"); err != nil {
 		return fmt.Errorf("stage %s changes: %w", stepName, err)
@@ -111,6 +136,9 @@ func executeFixMode(sctx *pipeline.StepContext, stepName types.StepName, opts fi
 	if opts.LogMessage != "" {
 		sctx.Log(opts.LogMessage)
 	}
+	if err := requireSafeAutomaticSourceWork(sctx, "fix "+string(stepName)); err != nil {
+		return "", err
+	}
 	result, err := sctx.Agent.Run(sctx.Ctx, agent.RunOpts{
 		Prompt:     opts.Prompt,
 		CWD:        sctx.WorkDir,
@@ -129,7 +157,7 @@ func executeFixMode(sctx *pipeline.StepContext, stepName types.StepName, opts fi
 	if err != nil {
 		sctx.Log(fmt.Sprintf("warning: could not parse fix summary: %v", err))
 	}
-	if err := commitAgentFixes(sctx, stepName, summary, opts.FallbackSummary); err != nil {
+	if err := commitAgentFixes(sctx, stepName, summary, opts.FallbackSummary, true); err != nil {
 		return "", err
 	}
 	return summary, nil

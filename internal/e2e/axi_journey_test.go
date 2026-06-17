@@ -34,6 +34,8 @@ func axiScenario(t *testing.T) string {
           file: "feature.txt"
           line: 1
           description: "potential nil deref"
+          context: "The fake review scenario models a warning on feature.txt so AXI can stop at an ask-user gate."
+          suggested_fix: "Inspect feature.txt and either approve the deliberate change or authorize a targeted fix."
           action: ask-user
       summary: "found 1 issue"
       risk_level: medium

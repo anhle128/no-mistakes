@@ -212,10 +212,16 @@ func TestSubscribeParams(t *testing.T) {
 
 func TestRespondParams(t *testing.T) {
 	params := RespondParams{
-		RunID:      "run123",
-		Step:       types.StepReview,
-		Action:     types.ActionApprove,
-		FindingIDs: []string{"review-1", "review-2"},
+		RunID:           "run123",
+		Step:            types.StepReview,
+		Action:          types.ActionApprove,
+		FindingIDs:      []string{"review-1", "review-2"},
+		DecisionSource:  types.DecisionSourceUnattended,
+		ActorType:       types.ActorAgent,
+		ApprovalSurface: types.ApprovalSurfaceAXI,
+		ConsentMode:     types.ConsentModeYes,
+		GateID:          "review",
+		GateFingerprint: "fp",
 	}
 	data, _ := json.Marshal(params)
 	var got RespondParams
@@ -234,18 +240,43 @@ func TestRespondParams(t *testing.T) {
 	if len(got.FindingIDs) != 2 || got.FindingIDs[0] != "review-1" || got.FindingIDs[1] != "review-2" {
 		t.Errorf("finding_ids = %#v, want %#v", got.FindingIDs, []string{"review-1", "review-2"})
 	}
+	if got.DecisionSource != types.DecisionSourceUnattended || got.ActorType != types.ActorAgent || got.ApprovalSurface != types.ApprovalSurfaceAXI || got.ConsentMode != types.ConsentModeYes {
+		t.Errorf("decision metadata mismatch: %+v", got)
+	}
+	if got.GateID != "review" || got.GateFingerprint != "fp" {
+		t.Errorf("gate identity mismatch: %+v", got)
+	}
 }
 
 func TestRunInfoRoundTrip(t *testing.T) {
 	prURL := "https://github.com/user/repo/pull/42"
 	info := RunInfo{
-		ID:        "run001",
-		RepoID:    "repo001",
-		Branch:    "feature",
-		HeadSHA:   "abc123",
-		BaseSHA:   "def456",
-		Status:    types.RunRunning,
-		PRURL:     &prURL,
+		ID:      "run001",
+		RepoID:  "repo001",
+		Branch:  "feature",
+		HeadSHA: "abc123",
+		BaseSHA: "def456",
+		Status:  types.RunRunning,
+		PRURL:   &prURL,
+		Boundary: types.ExecutionBoundary{
+			Status:               types.BoundarySafe,
+			Reason:               types.BoundaryReasonVerifiedRunWorktree,
+			Detail:               "ok",
+			ExpectedWorktreePath: "/managed/worktrees/repo/run",
+			ActualWorktreePath:   "/managed/worktrees/repo/run",
+			GitCommonDir:         "/managed/repos/repo.git",
+			GateRepoPath:         "/managed/repos/repo.git",
+			Fingerprint:          "proof-fingerprint",
+			VerifiedAt:           1700000000,
+			VerifierVersion:      "test",
+		},
+		GateAutomation: &types.GateAutomation{
+			GateID:          "review",
+			GateFingerprint: "fp",
+			Status:          types.GateAutomationAllowed,
+			RequestedMode:   types.ConsentModeYes,
+			Reason:          "safe",
+		},
 		CreatedAt: 1700000000,
 		UpdatedAt: 1700000001,
 	}
@@ -259,6 +290,15 @@ func TestRunInfoRoundTrip(t *testing.T) {
 	}
 	if got.PRURL == nil || *got.PRURL != prURL {
 		t.Errorf("pr_url = %v, want %q", got.PRURL, prURL)
+	}
+	if got.Boundary.Status != types.BoundarySafe || got.Boundary.Reason != types.BoundaryReasonVerifiedRunWorktree {
+		t.Errorf("boundary mismatch: %+v", got.Boundary)
+	}
+	if got.Boundary.Fingerprint != "proof-fingerprint" || got.Boundary.GitCommonDir != "/managed/repos/repo.git" {
+		t.Errorf("boundary proof fields mismatch: %+v", got.Boundary)
+	}
+	if got.GateAutomation == nil || got.GateAutomation.Status != types.GateAutomationAllowed || got.GateAutomation.RequestedMode != types.ConsentModeYes {
+		t.Errorf("gate automation mismatch: %+v", got.GateAutomation)
 	}
 }
 

@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/kunchenguid/no-mistakes/internal/ipc"
+import (
+	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/types"
+)
 
 // eventMsg wraps an IPC event received from the daemon.
 type eventMsg struct {
@@ -16,6 +19,11 @@ func (e errMsg) Error() string { return e.err.Error() }
 type subscriptionErrMsg struct {
 	err            error
 	subscriptionID uint64
+}
+
+type automationWithheldMsg struct {
+	run  *ipc.RunInfo
+	step types.StepName
 }
 
 // rerunStartedMsg switches the TUI onto a newly created rerun.

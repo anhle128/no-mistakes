@@ -12,6 +12,10 @@ func (m *Model) applyEvent(event ipc.Event) {
 	switch event.Type {
 	case ipc.EventRunUpdated, ipc.EventRunCreated:
 		m.err = nil
+		if event.Boundary != nil {
+			m.run.Boundary = *event.Boundary
+		}
+		m.applyGateAutomationEvent(event)
 		if event.Status != nil {
 			m.run.Status = types.RunStatus(*event.Status)
 		}
@@ -21,6 +25,10 @@ func (m *Model) applyEvent(event ipc.Event) {
 
 	case ipc.EventRunCompleted:
 		m.err = nil
+		if event.Boundary != nil {
+			m.run.Boundary = *event.Boundary
+		}
+		m.applyGateAutomationEvent(event)
 		if event.Status != nil {
 			m.run.Status = types.RunStatus(*event.Status)
 		}
@@ -47,6 +55,10 @@ func (m *Model) applyEvent(event ipc.Event) {
 
 	case ipc.EventStepCompleted:
 		m.err = nil
+		if event.Boundary != nil {
+			m.run.Boundary = *event.Boundary
+		}
+		m.applyGateAutomationEvent(event)
 		m.syntheticSteps = false
 		m.flushPartialLog()
 		if event.StepName != nil && event.Status != nil {
@@ -141,6 +153,33 @@ func (m *Model) applyEvent(event ipc.Event) {
 			}
 		}
 	}
+}
+
+func (m *Model) applyGateAutomationEvent(event ipc.Event) {
+	if event.GateAutomation != nil {
+		m.run.GateAutomation = event.GateAutomation
+		return
+	}
+	switch event.Type {
+	case ipc.EventRunCompleted:
+		m.run.GateAutomation = nil
+	case ipc.EventStepCompleted:
+		m.clearResolvedGateAutomation(event)
+	}
+}
+
+func (m *Model) clearResolvedGateAutomation(event ipc.Event) {
+	if m.run.GateAutomation == nil || event.StepName == nil || event.Status == nil {
+		return
+	}
+	if m.run.GateAutomation.GateID != string(*event.StepName) {
+		return
+	}
+	status := types.StepStatus(*event.Status)
+	if status == types.StepStatusAwaitingApproval || status == types.StepStatusFixReview {
+		return
+	}
+	m.run.GateAutomation = nil
 }
 
 func (m *Model) updateStepStatus(name types.StepName, status types.StepStatus) {

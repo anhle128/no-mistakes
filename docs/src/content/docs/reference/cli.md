@@ -75,6 +75,7 @@ When starting a new run, `axi run` refuses the default branch and uncommitted wo
 Reattaching to an in-flight run does not require `--intent`.
 With `--yes`, `axi run` treats both `action: auto-fix` and `action: ask-user` findings as standing consent for the pipeline to fix them by selecting every finding, then accepts the resulting fix review.
 Gates with no findings or only `action: no-op` findings are approved as-is, and each step is fixed at most once so unresolved findings do not loop forever.
+`--yes` is honored only when no-mistakes can prove the run is still inside its managed disposable worktree. If the output includes an `automation` object with `status: withheld`, the gate remains waiting and the agent must not send a manual response unless the user gives an explicit per-gate decision.
 Without `--yes`, an agent driving `axi run` should stop when a gate contains `action: ask-user` findings and relay each finding's ID, file, full description, context, and suggested fix to the user before responding.
 When the CI step is still monitoring an open PR and checks are green, `axi run` exits successfully with `outcome: checks-passed` instead of waiting for a human merge.
 Treat that as the agent stopping point: ask the user to review and merge the PR from the `help` line.
@@ -102,6 +103,7 @@ no-mistakes axi respond --action skip
 | `-y`, `--yes` | `bool` | `false` | Auto-resolve every subsequent gate until a decision point or outcome |
 
 After the explicit response, `--yes` uses the same auto-resolution behavior as `axi run --yes`: have the pipeline fix `auto-fix` and `ask-user` findings once, approve the fix review, approve gates that only contain non-actionable `no-op` findings, and stop at `outcome: checks-passed` when CI is green but the PR still needs a human merge.
+The same boundary rule applies after the explicit response: if subsequent unattended automation is withheld, inspect `automation.reason`, `automation.message`, and `automation.recovery_options` and leave the gate for manual user direction.
 The same successful-output reporting instructions apply to `axi respond` results.
 
 ## no-mistakes axi status
@@ -116,6 +118,8 @@ no-mistakes axi status --run <id>
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--run` | `string` | active or most recent | Inspect a specific run ID |
+
+Status output includes the run's boundary state and, when a gate has withheld or allowed unattended automation, the gate automation fields.
 
 ## no-mistakes axi logs
 
@@ -193,6 +197,7 @@ Displays:
 - Gate path
 - Daemon status (running/stopped, PID)
 - Active run details: ID, branch, status, head SHA, start time
+- Active run boundary state when available
 
 ## no-mistakes runs
 
@@ -206,7 +211,7 @@ no-mistakes runs [--limit <n>]
 |---|---|---|---|
 | `--limit` | `int` | `10` | Maximum number of runs to display |
 
-Shows runs newest-first with branch, status (styled), short SHA, timestamp, and PR URL if set.
+Shows runs newest-first with branch, status (styled), boundary state, short SHA, timestamp, and PR URL if set.
 
 ## no-mistakes stats
 

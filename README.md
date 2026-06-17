@@ -93,6 +93,7 @@ $ no-mistakes
 ```
 
 From the TUI you act on each **finding**: **auto-fix** ones are applied for you (or approve to let them), **ask-user** ones are a judgement call you approve, fix, or skip. Once every check is green, the gate forwards your branch upstream and opens the PR for you — no manual `git push origin`, no hand-written PR body. Prefer to let your coding agent drive the same flow headlessly? Use `/no-mistakes` (see below).
+Unattended gate shortcuts such as TUI yolo mode and AXI `--yes` only act while the daemon can prove the run is still in its managed disposable worktree; otherwise the gate stays paused for manual action.
 
 ## Three ways to trigger the gate
 

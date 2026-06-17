@@ -157,6 +157,9 @@ func newTestContext(t *testing.T, ag agent.Agent, workDir, baseSHA, headSHA stri
 		Log:      func(s string) {},
 		LogChunk: func(s string) {},
 		LogFile:  func(s string) {},
+		RequireSafeBoundary: func(action string) error {
+			return nil
+		},
 	}
 }
 

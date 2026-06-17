@@ -13,6 +13,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/skill"
+	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
 
@@ -127,9 +128,11 @@ func runAxiHome(cmd *cobra.Command) error {
 	if active != nil {
 		steps, _ := env.d.GetStepsByRun(active.ID)
 		rv := runViewFromDB(active, steps)
+		rv.GateAutomation = gateAutomationFromDB(env.d, active, rv, types.ApprovalSurfaceAXI)
 		fields = append(fields, runObjectField(rv))
 		if gate, ok := rv.awaitingStep(); ok {
 			gated = true
+			fields = append(fields, automationFields(rv.GateAutomation)...)
 			fields = append(fields, gateFields(gate)...)
 		}
 	}

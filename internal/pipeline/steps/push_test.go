@@ -1,8 +1,10 @@
 package steps
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kunchenguid/no-mistakes/internal/config"
@@ -108,6 +110,81 @@ func TestPushStep_ForceAddsInRepoEvidenceArtifacts(t *testing.T) {
 	gitCmd(t, clone, "clone", "--branch", "feature", upstream, ".")
 	if _, err := os.Stat(filepath.Join(clone, "evidence", "feature", "checkout.png")); err != nil {
 		t.Fatalf("expected ignored evidence artifact to be pushed: %v", err)
+	}
+}
+
+func TestPushStep_RequiresSafeBoundaryImmediatelyBeforePush(t *testing.T) {
+	t.Parallel()
+	upstream := t.TempDir()
+	gitCmd(t, upstream, "init", "--bare")
+
+	dir := t.TempDir()
+	gitCmd(t, dir, "init")
+	gitCmd(t, dir, "config", "user.name", "test")
+	gitCmd(t, dir, "config", "user.email", "test@test.com")
+	gitCmd(t, dir, "checkout", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "initial")
+	baseSHA := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "remote", "add", "origin", upstream)
+	gitCmd(t, dir, "push", "origin", "main")
+
+	gitCmd(t, dir, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-m", "feature")
+	oldHead := gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "push", "origin", "feature")
+
+	if err := os.WriteFile(filepath.Join(dir, "pending.txt"), []byte("pending\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, oldHead, config.Commands{})
+	sctx.Repo.UpstreamURL = upstream
+	sctx.Run.Branch = "refs/heads/feature"
+	checks := 0
+	sctx.RequireSafeBoundary = func(action string) error {
+		switch checks {
+		case 0:
+			if action != "push" {
+				t.Fatalf("boundary action = %q, want initial push", action)
+			}
+		case 1:
+			if action != "stage evidence" {
+				t.Fatalf("boundary action = %q, want stage evidence", action)
+			}
+		case 2:
+			if action != "commit agent changes" {
+				t.Fatalf("boundary action = %q, want commit agent changes", action)
+			}
+		default:
+			t.Fatalf("unexpected boundary action %q after %d checks", action, checks)
+		}
+		checks++
+		if checks == 3 {
+			return errors.New("unsafe boundary")
+		}
+		return nil
+	}
+
+	_, err := (&PushStep{}).Execute(sctx)
+	if err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("PushStep error = %v, want unsafe boundary", err)
+	}
+	if checks != 3 {
+		t.Fatalf("boundary checks = %d, want entry, evidence, and commit checks", checks)
+	}
+	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != oldHead {
+		t.Fatalf("local HEAD moved despite commit boundary check: %s", got)
+	}
+	if got := gitCmd(t, dir, "ls-remote", upstream, "refs/heads/feature"); !strings.Contains(got, oldHead) {
+		t.Fatalf("remote ref moved despite final boundary check: %s", got)
 	}
 }
 

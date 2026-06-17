@@ -2,11 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/cimonitor"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/types"
@@ -22,6 +30,39 @@ func ciRunView(ciStatus types.StepStatus) runView {
 			{Name: string(types.StepCI), Status: string(ciStatus)},
 		},
 	}
+}
+
+func cliTestSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "cli-ipc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "s.sock")
+}
+
+func cliTestIPCServer(t *testing.T, sock string) *ipc.Server {
+	t.Helper()
+	srv := ipc.NewServer()
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(sock) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		c, err := ipc.Dial(sock)
+		if err == nil {
+			_ = c.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Cleanup(func() {
+		srv.Close()
+		<-errCh
+	})
+	return srv
 }
 
 func TestCIReadyToMerge(t *testing.T) {
@@ -153,6 +194,83 @@ func TestGateResolution(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDriveRunYesReturnsPersistedWithheldAutomation(t *testing.T) {
+	sock := cliTestSocketPath(t)
+	srv := cliTestIPCServer(t, sock)
+
+	fingerprint := boundary.GateFingerprint("run-1", types.StepReview, types.StepStatusAwaitingApproval, "server-round", "")
+	withheldRun := func(withheld bool) *ipc.RunInfo {
+		run := &ipc.RunInfo{
+			ID:      "run-1",
+			Branch:  "feature/x",
+			Status:  types.RunRunning,
+			HeadSHA: "abcdef1234567890",
+			Boundary: types.ExecutionBoundary{
+				Status: types.BoundaryUnknown,
+				Reason: types.BoundaryReasonMissingWorktree,
+				Detail: "missing",
+			},
+			Steps: []ipc.StepResultInfo{
+				{ID: "s1", StepName: types.StepReview, StepOrder: 1, Status: types.StepStatusAwaitingApproval},
+			},
+		}
+		if withheld {
+			run.GateAutomation = &types.GateAutomation{
+				GateID:          "review",
+				GateFingerprint: fingerprint,
+				Status:          types.GateAutomationWithheld,
+				RequestedMode:   types.ConsentModeYes,
+				Reason:          "unknown",
+				Message:         "withheld by daemon",
+			}
+		}
+		return run
+	}
+
+	var mu sync.Mutex
+	respondCalls := 0
+	srv.Handle(ipc.MethodGetRun, func(_ context.Context, raw json.RawMessage) (interface{}, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return &ipc.GetRunResult{Run: withheldRun(respondCalls > 0)}, nil
+	})
+	srv.Handle(ipc.MethodRespond, func(_ context.Context, raw json.RawMessage) (interface{}, error) {
+		var params ipc.RespondParams
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		if params.DecisionSource != types.DecisionSourceUnattended || params.ConsentMode != types.ConsentModeYes {
+			return nil, errors.New("respond metadata did not mark unattended yes")
+		}
+		mu.Lock()
+		respondCalls++
+		mu.Unlock()
+		return nil, errors.New("withheld by daemon")
+	})
+
+	client, err := ipc.Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	run, ciReady, err := driveRun(context.Background(), &bytes.Buffer{}, client, "run-1", true, nil)
+	if err != nil {
+		t.Fatalf("driveRun returned error for withheld automation: %v", err)
+	}
+	if ciReady {
+		t.Fatal("ciReady = true, want false")
+	}
+	if !runHasWithheldAutomation(run, "review", fingerprint) {
+		t.Fatalf("run automation = %+v, want persisted withheld", run.GateAutomation)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if respondCalls != 1 {
+		t.Fatalf("respondCalls = %d, want 1", respondCalls)
 	}
 }
 
@@ -309,5 +427,51 @@ func TestRenderDriveResult_FailedHasNoSummarizeInstruction(t *testing.T) {
 	got := out.String()
 	if strings.Contains(got, "Summarize this pipeline run for the user") {
 		t.Errorf("failed outcome must not carry the success summary instruction:\n%s", got)
+	}
+}
+
+func TestRenderDriveResult_GateIncludesWithheldAutomation(t *testing.T) {
+	run := &ipc.RunInfo{
+		ID:      "run-1",
+		Branch:  "feature/x",
+		Status:  types.RunRunning,
+		HeadSHA: "abcdef1234567890",
+		Boundary: types.ExecutionBoundary{
+			Status: types.BoundaryUnknown,
+			Reason: types.BoundaryReasonMissingWorktree,
+			Detail: "missing",
+		},
+		GateAutomation: &types.GateAutomation{
+			GateID:          "review",
+			GateFingerprint: "fp",
+			Status:          types.GateAutomationWithheld,
+			RequestedMode:   types.ConsentModeYes,
+			Reason:          "unknown",
+			Message:         "Unattended automation was withheld because the run boundary is unknown.",
+			RecoveryOptions: []string{"Respond manually to this gate"},
+		},
+		Steps: []ipc.StepResultInfo{
+			{StepName: types.StepReview, Status: types.StepStatusAwaitingApproval},
+		},
+	}
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+
+	if err := renderDriveResult(cmd, run, false); err != nil {
+		t.Fatalf("gate render must exit 0, got error: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"automation:",
+		"requested_mode: yes",
+		"status: withheld",
+		"boundary:",
+		"reason: missing_worktree",
+		"Respond manually to this gate",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("withheld output missing %q in:\n%s", want, got)
+		}
 	}
 }

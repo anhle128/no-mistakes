@@ -130,6 +130,7 @@ The document step attempts documentation fixes during its initial pass, so unres
 For empty `commands.lint`, the agent still attempts safe fixes during the initial lint pass; unresolved lint findings then pause for approval instead of starting another automatic fix loop.
 
 `auto_fix.ci` covers the CI step's CI failure and merge-conflict auto-fix attempts.
+These limits only cap attempts; unattended auto-fixes still require a fresh safe managed-worktree proof before the agent runs or commits changes.
 
 Legacy alias: `auto_fix.babysit`.
 

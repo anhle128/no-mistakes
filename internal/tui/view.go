@@ -94,6 +94,9 @@ func (m Model) View() string {
 	if m.err != nil {
 		appendExtraSection(renderErrorBox(m.err, rightWidth))
 	}
+	if notice := renderAutomationNotice(m.run, rightWidth); notice != "" {
+		appendExtraSection(notice)
+	}
 
 	// Modal editor takes priority over findings/logs so it always renders
 	// when active. Bypass the content budget so it never gets dropped on
@@ -356,6 +359,31 @@ func renderErrorBox(err error, width int) string {
 		errContent.WriteString(errStyle.Render(line))
 	}
 	return renderBox("Error", errContent.String(), boxWidth)
+}
+
+func renderAutomationNotice(run *ipc.RunInfo, width int) string {
+	if run == nil || run.GateAutomation == nil || run.GateAutomation.Status != "withheld" {
+		return ""
+	}
+	boxWidth := width
+	if boxWidth < 20 {
+		boxWidth = 80
+	}
+	contentWidth := boxWidth - 4
+	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiYellow)).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiBrightBlack))
+	lines := []string{
+		warnStyle.Render("YOLO withheld"),
+		fmt.Sprintf("mode %s  gate %s  reason %s", run.GateAutomation.RequestedMode, run.GateAutomation.GateID, run.GateAutomation.Reason),
+		run.GateAutomation.Message,
+	}
+	if len(run.GateAutomation.RecoveryOptions) > 0 {
+		lines = append(lines, dimStyle.Render(strings.Join(run.GateAutomation.RecoveryOptions, " | ")))
+	}
+	for i, line := range lines {
+		lines[i], _ = cutText(line, contentWidth)
+	}
+	return renderBox("Automation", strings.Join(lines, "\n"), boxWidth)
 }
 
 func renderFooter(done bool, showHelp bool, confirmAbort bool, yolo bool, run *ipc.RunInfo, latestVersion string, width int) string {

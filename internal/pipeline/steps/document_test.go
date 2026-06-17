@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +52,39 @@ func TestDocumentStep_AgentManaged_FixesAndCommitsWithoutApproval(t *testing.T) 
 	}
 	if sctx.Run.HeadSHA == headSHA {
 		t.Error("expected HeadSHA to advance after doc commit")
+	}
+}
+
+func TestDocumentStep_AgentManaged_RequiresSafeBoundaryBeforeAgent(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	callCount := 0
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			callCount++
+			os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Should not write\n"), 0o644)
+			return &agent.Result{Output: json.RawMessage(`{"findings":[],"summary":"update README"}`)}, nil
+		},
+	}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.RequireSafeBoundary = func(action string) error {
+		if action != "update documentation" {
+			t.Fatalf("boundary action = %q, want update documentation", action)
+		}
+		return errors.New("unsafe boundary")
+	}
+
+	step := &DocumentStep{}
+	if _, err := step.Execute(sctx); err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("Execute error = %v, want unsafe boundary", err)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no document agent call before safe boundary, got %d", callCount)
+	}
+	if status := gitStatusPorcelain(t, dir); status != "" {
+		t.Fatalf("expected clean worktree after withheld document agent, got %q", status)
 	}
 }
 
@@ -164,6 +198,10 @@ func TestDocumentStep_UserFix_PassesPreviousFindingsIntoPrompt(t *testing.T) {
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
 	sctx.Fixing = true
 	sctx.PreviousFindings = `{"items":[{"id":"doc-1 =======","severity":"warning","file":"docs/config.md >>>>>>> prompt","description":"config section stale <<<<<<< HEAD"}],"summary":"config docs stale"}`
+	sctx.RequireSafeBoundary = func(action string) error {
+		t.Fatalf("manual document fix should not use unattended boundary guard, got %q", action)
+		return nil
+	}
 
 	step := &DocumentStep{}
 	outcome, err := step.Execute(sctx)
