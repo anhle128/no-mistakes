@@ -116,6 +116,9 @@ func hasReportableReviewEvidence(rounds []*db.StepRound) bool {
 }
 
 func metadataFromSnapshot(snapshot ReportSnapshot, existing *db.ReviewResolutionReportMetadata, status string, stale bool, safeErr string) db.ReviewResolutionReportMetadata {
+	if status == StatusError && existing != nil && existing.ReportPath != nil && strings.TrimSpace(*existing.ReportPath) != "" {
+		return staleMetadataFromExisting(existing, snapshot, safeErr)
+	}
 	counts, err := json.Marshal(snapshot.Counts)
 	if err != nil {
 		counts = []byte("{}")
@@ -126,11 +129,7 @@ func metadataFromSnapshot(snapshot ReportSnapshot, existing *db.ReviewResolution
 	}
 	path := snapshot.Metadata.Path
 	effectiveStatus := status
-	if status == StatusError && existing != nil && existing.ReportPath != nil && *existing.ReportPath != "" {
-		path = *existing.ReportPath
-		stale = true
-		effectiveStatus = StatusStale
-	} else if status == StatusError {
+	if status == StatusError {
 		path = ""
 	}
 	var pathPtr *string
@@ -181,6 +180,27 @@ func metadataFromSnapshot(snapshot ReportSnapshot, existing *db.ReviewResolution
 	if effectiveStatus == StatusCurrent {
 		meta.Stale = false
 		meta.SafeError = nil
+	}
+	return meta
+}
+
+func staleMetadataFromExisting(existing *db.ReviewResolutionReportMetadata, snapshot ReportSnapshot, safeErr string) db.ReviewResolutionReportMetadata {
+	meta := *existing
+	meta.Status = StatusStale
+	meta.Stale = true
+	meta.UpdatedAt = snapshot.Metadata.UpdatedAt
+	if meta.UpdatedAt == 0 {
+		meta.UpdatedAt = time.Now().Unix()
+	}
+	if strings.TrimSpace(meta.ContractVersion) == "" {
+		meta.ContractVersion = ContractVersion
+	}
+	if strings.TrimSpace(meta.GenerationMode) == "" {
+		meta.GenerationMode = generationModeOrDefault(snapshot.Metadata.GenerationMode)
+	}
+	if strings.TrimSpace(safeErr) != "" {
+		clean := SanitizeText(safeErr, ValueUnavailable)
+		meta.SafeError = &clean
 	}
 	return meta
 }

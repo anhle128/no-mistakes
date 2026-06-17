@@ -176,6 +176,24 @@ func TestUpdateWriteFailurePreservesExistingReportAsStale(t *testing.T) {
 	}
 	oldPath := *meta.ReportPath
 	oldGeneratedAt := *meta.GeneratedAt
+	oldLatestOutcome := meta.LatestOutcome
+	oldSummaryCounts := meta.SummaryCountsJSON
+	oldSourceRounds := meta.SourceRoundIDsJSON
+	oldLatestReviewRoundID := meta.LatestReviewRoundID
+
+	steps, err := database.GetStepsByRun(run.ID)
+	if err != nil {
+		t.Fatalf("get steps: %v", err)
+	}
+	step := findReviewStep(steps)
+	if step == nil {
+		t.Fatal("review step not found")
+	}
+	nextFindings := `{"findings":[{"id":"review-2","severity":"warning","description":"new issue","action":"auto-fix"}],"summary":"1 finding","risk_level":"medium","risk_rationale":"new issue remains"}`
+	if _, err := database.InsertStepRound(step.ID, 2, "initial", &nextFindings, nil, 10); err != nil {
+		t.Fatalf("insert new round: %v", err)
+	}
+
 	if err := os.RemoveAll(p.RunReportDir(run.ID)); err != nil {
 		t.Fatalf("remove report dir: %v", err)
 	}
@@ -195,6 +213,21 @@ func TestUpdateWriteFailurePreservesExistingReportAsStale(t *testing.T) {
 	}
 	if meta.GeneratedAt == nil || *meta.GeneratedAt != oldGeneratedAt {
 		t.Fatalf("generated_at = %v, want existing %d", meta.GeneratedAt, oldGeneratedAt)
+	}
+	if meta.LatestOutcome != oldLatestOutcome {
+		t.Fatalf("latest_outcome = %q, want existing %q", meta.LatestOutcome, oldLatestOutcome)
+	}
+	if meta.SummaryCountsJSON != oldSummaryCounts {
+		t.Fatalf("summary_counts_json = %q, want existing %q", meta.SummaryCountsJSON, oldSummaryCounts)
+	}
+	if meta.SourceRoundIDsJSON != oldSourceRounds {
+		t.Fatalf("source_round_ids_json = %q, want existing %q", meta.SourceRoundIDsJSON, oldSourceRounds)
+	}
+	if (meta.LatestReviewRoundID == nil) != (oldLatestReviewRoundID == nil) {
+		t.Fatalf("latest_review_round_id = %v, want existing %v", meta.LatestReviewRoundID, oldLatestReviewRoundID)
+	}
+	if meta.LatestReviewRoundID != nil && oldLatestReviewRoundID != nil && *meta.LatestReviewRoundID != *oldLatestReviewRoundID {
+		t.Fatalf("latest_review_round_id = %q, want existing %q", *meta.LatestReviewRoundID, *oldLatestReviewRoundID)
 	}
 }
 

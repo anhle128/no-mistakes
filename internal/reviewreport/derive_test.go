@@ -70,6 +70,41 @@ func TestDeriveUnreadableFinalFindingsFailsClosed(t *testing.T) {
 	}
 }
 
+func TestDeriveUnreadableEarlierFindingsFailsClosed(t *testing.T) {
+	run := &db.Run{ID: "run1", Branch: "feature", HeadSHA: "head", BaseSHA: "base", Status: types.RunCompleted}
+	step := &db.StepResult{ID: "step1", RunID: run.ID, StepName: types.StepReview, Status: types.StepStatusCompleted}
+	invalid := `{not-json`
+	final := `{"findings":[],"summary":"clean","risk_level":"low","risk_rationale":"clean"}`
+	rounds := []*db.StepRound{
+		{ID: "round-1", StepResultID: step.ID, Round: 1, Trigger: "initial", FindingsJSON: &invalid, DurationMS: 1, CreatedAt: 1},
+		{ID: "round-2", StepResultID: step.ID, Round: 2, Trigger: "auto_fix", FindingsJSON: &final, DurationMS: 1, CreatedAt: 2},
+	}
+
+	snapshot := Derive(DeriveInput{Run: run, ReviewStep: step, Rounds: rounds})
+
+	if snapshot.Latest.Outcome != LatestOutcomeReviewDataInconsistent {
+		t.Fatalf("latest outcome = %q, want review data inconsistent", snapshot.Latest.Outcome)
+	}
+}
+
+func TestDeriveUnreadableEarlierUserFindingsFailsClosed(t *testing.T) {
+	run := &db.Run{ID: "run1", Branch: "feature", HeadSHA: "head", BaseSHA: "base", Status: types.RunCompleted}
+	step := &db.StepResult{ID: "step1", RunID: run.ID, StepName: types.StepReview, Status: types.StepStatusCompleted}
+	initial := `{"findings":[{"id":"review-1","severity":"warning","description":"issue","action":"auto-fix"}],"summary":"1"}`
+	invalidUserFindings := `{not-json`
+	final := `{"findings":[],"summary":"clean","risk_level":"low","risk_rationale":"clean"}`
+	rounds := []*db.StepRound{
+		{ID: "round-1", StepResultID: step.ID, Round: 1, Trigger: "initial", FindingsJSON: &initial, UserFindingsJSON: &invalidUserFindings, DurationMS: 1, CreatedAt: 1},
+		{ID: "round-2", StepResultID: step.ID, Round: 2, Trigger: "auto_fix", FindingsJSON: &final, DurationMS: 1, CreatedAt: 2},
+	}
+
+	snapshot := Derive(DeriveInput{Run: run, ReviewStep: step, Rounds: rounds})
+
+	if snapshot.Latest.Outcome != LatestOutcomeReviewDataInconsistent {
+		t.Fatalf("latest outcome = %q, want review data inconsistent", snapshot.Latest.Outcome)
+	}
+}
+
 func TestDeriveLegacyMissingSelectionDoesNotInferDecision(t *testing.T) {
 	run := &db.Run{ID: "run1", Branch: "feature", HeadSHA: "head", BaseSHA: "base", Status: types.RunCompleted}
 	step := &db.StepResult{ID: "step1", RunID: run.ID, StepName: types.StepReview, Status: types.StepStatusCompleted}
@@ -94,6 +129,35 @@ func TestDeriveLegacyMissingSelectionDoesNotInferDecision(t *testing.T) {
 	if snapshot.Counts[CountAccepted] != 0 {
 		t.Fatalf("accepted count = %d, want 0", snapshot.Counts[CountAccepted])
 	}
+}
+
+func TestDeriveMissingActionAndSourceAreNotInferred(t *testing.T) {
+	run := &db.Run{ID: "run1", Branch: "feature", HeadSHA: "head", BaseSHA: "base", Status: types.RunCompleted}
+	step := &db.StepResult{ID: "step1", RunID: run.ID, StepName: types.StepReview, Status: types.StepStatusCompleted}
+	initial := `{"findings":[{"id":"review-1","severity":"warning","description":"legacy finding"}],"summary":"1"}`
+	final := `{"findings":[],"summary":"clean"}`
+	rounds := []*db.StepRound{
+		{ID: "round-1", StepResultID: step.ID, Round: 1, Trigger: "initial", FindingsJSON: &initial, DurationMS: 1, CreatedAt: 1},
+		{ID: "round-2", StepResultID: step.ID, Round: 2, Trigger: "auto_fix", FindingsJSON: &final, DurationMS: 1, CreatedAt: 2},
+	}
+
+	snapshot := Derive(DeriveInput{Run: run, ReviewStep: step, Rounds: rounds})
+
+	if len(snapshot.Findings) != 1 {
+		t.Fatalf("findings = %+v", snapshot.Findings)
+	}
+	finding := snapshot.Findings[0]
+	if finding.Source != ValueNotRecorded {
+		t.Fatalf("source = %q, want not recorded", finding.Source)
+	}
+	if finding.ActionType != ValueNotRecorded {
+		t.Fatalf("action type = %q, want not recorded", finding.ActionType)
+	}
+	if finding.Decision != DecisionNotRecorded {
+		t.Fatalf("decision = %q, want decision not recorded", finding.Decision)
+	}
+	assertCount(t, snapshot.Counts, CountActionableFindings, 0)
+	assertCount(t, snapshot.Counts, CountDecisionNotRecorded, 1)
 }
 
 func TestDeriveSelectedFindingStillOpenKeepsSelectionCount(t *testing.T) {

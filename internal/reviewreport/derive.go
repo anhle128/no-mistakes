@@ -221,7 +221,7 @@ func selectedEvidence(rounds []parsedRound, snapshot *ReportSnapshot) selectionI
 		if source == db.RoundSelectionSourceUser && r.findings != nil {
 			for _, item := range r.findings.Items {
 				_, wasSelected := info.selected[item.ID]
-				if item.ID == "" || wasSelected || effectiveAction(item) == types.ActionNoOp {
+				if item.ID == "" || wasSelected || findingActionIsNoOp(item) {
 					continue
 				}
 				info.skipped[item.ID] = r.round.ID
@@ -306,7 +306,7 @@ func reportFinding(item types.Finding, selected selectionInfo, latestIDs map[str
 		decision = DecisionSelectedForFix
 		actor = selected.actor[id]
 		evidence = "round " + selectedRound
-	} else if effectiveAction(item) == types.ActionNoOp {
+	} else if findingActionIsNoOp(item) {
 		decision = DecisionInformational
 		evidence = "finding action no-op"
 	} else if roundID, ok := selected.skipped[id]; ok {
@@ -320,7 +320,7 @@ func reportFinding(item types.Finding, selected selectionInfo, latestIDs map[str
 		Severity:         SanitizeText(item.Severity, ValueUnavailable),
 		Location:         findingLocation(item),
 		Source:           findingSource(item),
-		ActionType:       SanitizeText(effectiveAction(item), ValueUnavailable),
+		ActionType:       findingActionType(item),
 		Context:          SanitizeText(item.Context, ValueUnavailable),
 		Recommendation:   SanitizeText(item.SuggestedFix, ValueUnavailable),
 		SelectedForFix:   wasSelected && !selected.invalid,
@@ -332,7 +332,7 @@ func reportFinding(item types.Finding, selected selectionInfo, latestIDs map[str
 }
 
 func addFindingCounts(counts map[string]int, item types.Finding, finding ReviewFinding) {
-	if effectiveAction(item) != types.ActionNoOp {
+	if findingActionIsActionable(item) {
 		counts[CountActionableFindings]++
 	}
 	if finding.SelectedForFix {
@@ -405,7 +405,12 @@ func deriveFixAttempts(rounds []parsedRound) []FixAttempt {
 
 func deriveLatestOutcome(run *db.Run, step *db.StepResult, latest parsedRound, findings *types.Findings, integrity string, fixAttempts int, postFixReviewAvailable bool) LatestReviewOutcome {
 	out := LatestReviewOutcome{Risk: ValueUnavailable, Rationale: ValueUnavailable}
-	if integrity == IntegrityInconsistent {
+	if latest.round != nil && latest.round.FindingsJSON != nil && latest.parseErr != nil {
+		out.Outcome = LatestOutcomeFinalFindingsUnreadable
+		out.Evidence = "latest review findings could not be parsed"
+		return out
+	}
+	if integrity == IntegrityInconsistent || integrity == IntegrityPartial {
 		out.Outcome = LatestOutcomeReviewDataInconsistent
 		out.Evidence = "stored review data is internally inconsistent"
 		return out
@@ -423,11 +428,6 @@ func deriveLatestOutcome(run *db.Run, step *db.StepResult, latest parsedRound, f
 			out.Outcome = LatestOutcomeFinalFindingsUnavailable
 			out.Evidence = "final review findings are unavailable"
 		}
-		return out
-	}
-	if latest.parseErr != nil {
-		out.Outcome = LatestOutcomeFinalFindingsUnreadable
-		out.Evidence = "latest review findings could not be parsed"
 		return out
 	}
 	if fixAttempts > 0 && run != nil && (run.Status == types.RunFailed || run.Status == types.RunCancelled) && !postFixReviewAvailable {
@@ -554,16 +554,25 @@ func findingLocation(item types.Finding) string {
 
 func findingSource(item types.Finding) string {
 	if strings.TrimSpace(item.Source) == "" {
-		return types.FindingSourceAgent
+		return ValueNotRecorded
 	}
 	return SanitizeText(item.Source, ValueNotRecorded)
 }
 
-func effectiveAction(item types.Finding) string {
+func findingActionType(item types.Finding) string {
 	if strings.TrimSpace(item.Action) == "" {
-		return types.ActionAutoFix
+		return ValueNotRecorded
 	}
-	return item.Action
+	return SanitizeText(item.Action, ValueUnavailable)
+}
+
+func findingActionIsNoOp(item types.Finding) bool {
+	return strings.TrimSpace(item.Action) == types.ActionNoOp
+}
+
+func findingActionIsActionable(item types.Finding) bool {
+	action := strings.TrimSpace(item.Action)
+	return action != "" && action != types.ActionNoOp
 }
 
 func sanitizeOptional(value *string, missing string) string {
