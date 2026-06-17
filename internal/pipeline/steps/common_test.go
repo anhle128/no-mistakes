@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kunchenguid/no-mistakes/internal/agent"
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline"
@@ -41,6 +43,102 @@ func TestCopyDirContents_PreservesGitRepo(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "feature.txt")); err != nil {
 		t.Fatalf("stat feature.txt: %v", err)
+	}
+}
+
+func TestRequireSafeBoundaryFailsClosedWhenVerifierMissing(t *testing.T) {
+	t.Parallel()
+
+	err := requireSafeBoundary(&pipeline.StepContext{}, "push")
+	if err == nil || !strings.Contains(err.Error(), "withheld push: boundary verifier unavailable") {
+		t.Fatalf("requireSafeBoundary error = %v, want boundary verifier unavailable", err)
+	}
+}
+
+func TestRequireSafeBoundaryNamesBlankAction(t *testing.T) {
+	t.Parallel()
+
+	err := requireSafeBoundary(&pipeline.StepContext{}, " ")
+	if err == nil || !strings.Contains(err.Error(), "withheld automation: boundary verifier unavailable") {
+		t.Fatalf("requireSafeBoundary blank action error = %v, want automation fallback", err)
+	}
+}
+
+func TestRequireSafeAutomaticSourceWorkFailsClosedWhenVerifierMissing(t *testing.T) {
+	t.Parallel()
+
+	err := requireSafeAutomaticSourceWork(&pipeline.StepContext{}, "rebase")
+	if err == nil || !strings.Contains(err.Error(), "withheld rebase: boundary verifier unavailable") {
+		t.Fatalf("requireSafeAutomaticSourceWork error = %v, want boundary verifier unavailable", err)
+	}
+}
+
+func TestRequireSafeAutomaticSourceWorkAllowsFixingWithoutVerifier(t *testing.T) {
+	t.Parallel()
+
+	err := requireSafeAutomaticSourceWork(&pipeline.StepContext{Fixing: true}, "manual fix")
+	if err != nil {
+		t.Fatalf("requireSafeAutomaticSourceWork fixing mode error = %v, want nil", err)
+	}
+}
+
+func TestRequireSafeAutomaticSourceWorkFailsClosedForUnattendedFixing(t *testing.T) {
+	t.Parallel()
+
+	err := requireSafeAutomaticSourceWork(&pipeline.StepContext{
+		Fixing: true,
+		FixDecision: types.DecisionMetadata{
+			DecisionSource: types.DecisionSourceUnattended,
+		},
+	}, "fix review")
+	if err == nil || !strings.Contains(err.Error(), "withheld fix review: boundary verifier unavailable") {
+		t.Fatalf("requireSafeAutomaticSourceWork unattended fixing error = %v, want boundary verifier unavailable", err)
+	}
+}
+
+func TestExecuteFixModeUnattendedRequiresBoundaryBeforeAgentRun(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	agentCalled := false
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			agentCalled = true
+			if err := os.WriteFile(filepath.Join(opts.CWD, "agent-write.txt"), []byte("unsafe\n"), 0o644); err != nil {
+				return nil, err
+			}
+			return &agent.Result{Output: []byte(`{"summary":"fixed"}`)}, nil
+		},
+	}
+	sctx := &pipeline.StepContext{
+		Ctx:     context.Background(),
+		WorkDir: workDir,
+		Agent:   ag,
+		Log:     func(string) {},
+		LogFile: func(string) {},
+		Fixing:  true,
+		FixDecision: types.DecisionMetadata{
+			DecisionSource: types.DecisionSourceUnattended,
+		},
+		RequireSafeBoundary: func(action string) error {
+			return fmt.Errorf("unsafe boundary")
+		},
+	}
+
+	_, err := executeFixMode(sctx, types.StepReview, fixExecutionOptions{
+		Prompt:          "fix",
+		ErrorPrefix:     "fix review",
+		FallbackSummary: "apply fixes",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("executeFixMode error = %v, want unsafe boundary", err)
+	}
+	if agentCalled {
+		t.Fatal("agent ran despite withheld unattended boundary")
+	}
+	if _, statErr := os.Stat(filepath.Join(workDir, "agent-write.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("agent-write.txt stat error = %v, want not exists", statErr)
 	}
 }
 
@@ -565,7 +663,7 @@ func TestCommitAgentFixes_NoChanges(t *testing.T) {
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
 	originalHeadSHA := sctx.Run.HeadSHA
 
-	err := commitAgentFixes(sctx, types.StepReview, "should not commit", "fallback")
+	err := commitAgentFixes(sctx, types.StepReview, "should not commit", "fallback", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,12 +681,40 @@ func TestCommitAgentFixes_UsesFallbackSummary(t *testing.T) {
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
 
 	os.WriteFile(filepath.Join(dir, "agent-change.txt"), []byte("change"), 0o644)
-	err := commitAgentFixes(sctx, types.StepLint, "", "fallback lint fix")
+	err := commitAgentFixes(sctx, types.StepLint, "", "fallback lint fix", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := lastCommitMessage(t, dir); got != "no-mistakes(lint): fallback lint fix" {
 		t.Errorf("commit message = %q, want fallback-based message", got)
+	}
+}
+
+func TestCommitAgentFixesRequiresBoundaryBeforeCommit(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	gitCmd(t, dir, "checkout", "--detach", headSHA)
+
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Fixing = true
+	sctx.FixDecision = types.DecisionMetadata{DecisionSource: types.DecisionSourceUnattended}
+	sctx.RequireSafeBoundary = func(action string) error {
+		if action != "commit lint changes" {
+			t.Fatalf("boundary action = %q, want commit lint changes", action)
+		}
+		return errors.New("unsafe boundary")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "agent-change.txt"), []byte("change"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := commitAgentFixes(sctx, types.StepLint, "unsafe", "fallback", true)
+	if err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("commitAgentFixes error = %v, want unsafe boundary", err)
+	}
+	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != headSHA {
+		t.Fatalf("HEAD = %s, want unchanged %s", got, headSHA)
 	}
 }
 

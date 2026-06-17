@@ -219,6 +219,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case automationWithheldMsg:
+		if msg.run != nil && msg.run.ID == m.runID {
+			m.applyRunSnapshot(msg.run)
+		}
+		delete(m.yoloApproved, msg.step)
+		delete(m.yoloFixed, msg.step)
+		m.err = nil
+		return m, nil
+
 	case spinnerTickMsg:
 		m.spinnerScheduled = false
 		if !m.hasSpinningStep() {
@@ -299,6 +308,23 @@ func (m *Model) resetForRun(run *ipc.RunInfo) {
 	fresh.rerunRequestID = m.rerunRequestID
 	fresh.latestVersion = latestVersion
 	*m = fresh
+}
+
+func (m *Model) applyRunSnapshot(run *ipc.RunInfo) {
+	if run == nil || run.ID != m.runID {
+		return
+	}
+	steps := normalizePipelineSteps(run.ID, run.Status, run.Steps)
+	run.Steps = steps
+	m.run = run
+	m.steps = steps
+	m.done = run.Status == types.RunCompleted || run.Status == types.RunFailed || run.Status == types.RunCancelled
+	for _, s := range steps {
+		if s.FindingsJSON == nil || *s.FindingsJSON == "" {
+			continue
+		}
+		m.stepFindings[s.StepName] = *s.FindingsJSON
+	}
 }
 
 // Run starts the TUI program.

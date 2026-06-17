@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	toon "github.com/toon-format/toon-go"
 
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
@@ -70,8 +72,10 @@ func runAxiStatus(cmd *cobra.Command, runID string) error {
 		return emitError(cmd, 1, fmt.Sprintf("load steps: %v", err))
 	}
 	rv := runViewFromDB(run, steps)
+	rv.GateAutomation = gateAutomationFromDB(env.d, run, rv, types.ApprovalSurfaceAXI)
 	fields := []toon.Field{runObjectField(rv)}
 	if gate, ok := rv.awaitingStep(); ok {
+		fields = append(fields, automationFields(rv.GateAutomation)...)
 		fields = append(fields, gateFields(gate)...)
 	} else if terminalStatus(rv.Status) {
 		fields = append(fields, toon.Field{Key: "outcome", Value: outcomeFor(rv.Status)})
@@ -81,6 +85,56 @@ func runAxiStatus(cmd *cobra.Command, runID string) error {
 	}
 	emitDoc(cmd, fields...)
 	return nil
+}
+
+func gateAutomationFromDB(d *db.DB, run *db.Run, rv runView, surface types.ApprovalSurface) *types.GateAutomation {
+	gate, ok := rv.awaitingStep()
+	if !ok || run == nil {
+		return nil
+	}
+	if !surface.Valid() {
+		surface = types.ApprovalSurfaceUnknown
+	}
+	version, err := d.StepGateVersion(gate.ID)
+	if err != nil {
+		slog.Warn("failed to compute gate version", "run_id", run.ID, "gate_id", gate.Name, "error", err)
+		version = db.FallbackStepGateVersion(gate.ID)
+	}
+	fingerprint := boundary.GateFingerprint(run.ID, types.StepName(gate.Name), types.StepStatus(gate.Status), version, gate.FindingsJSON)
+	if event, err := d.GetGateAutomationEvent(run.ID, gate.Name, fingerprint); err == nil && event != nil {
+		automation := types.GateAutomation{
+			GateID:          gate.Name,
+			GateFingerprint: fingerprint,
+			Status:          event.Status,
+			RequestedMode:   event.RequestedMode,
+			Reason:          event.Reason,
+			Message:         event.Message,
+		}
+		if automation.Status == types.GateAutomationWithheld {
+			automation.RecoveryOptions = boundary.RecoveryOptions()
+		}
+		return &automation
+	}
+	automation := boundary.AutomationForBoundary(run.Boundary(), gate.Name, fingerprint, types.ConsentModeNone)
+	stepName := types.StepName(gate.Name)
+	if _, err := d.InsertRunEvent(db.RunEvent{
+		RunID:           run.ID,
+		EventType:       db.RunEventGateAutomationNotRequested,
+		StepName:        &stepName,
+		GateID:          gate.Name,
+		GateFingerprint: fingerprint,
+		Status:          automation.Status,
+		RequestedMode:   automation.RequestedMode,
+		Reason:          automation.Reason,
+		Message:         automation.Message,
+		DecisionSource:  types.DecisionSourceManual,
+		ActorType:       types.ActorSystem,
+		ApprovalSurface: surface,
+		ConsentMode:     types.ConsentModeNone,
+	}); err != nil {
+		slog.Warn("failed to record not-requested gate automation event", "run_id", run.ID, "gate_id", gate.Name, "error", err)
+	}
+	return &automation
 }
 
 func startRunHelp() string {

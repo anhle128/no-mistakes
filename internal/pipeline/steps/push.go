@@ -19,9 +19,15 @@ func (s *PushStep) Name() types.StepName { return types.StepPush }
 func (s *PushStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, error) {
 	ctx := sctx.Ctx
 	newHeadSHA := ""
+	if err := requireSafeBoundary(sctx, "push"); err != nil {
+		return nil, err
+	}
 
 	// Run format command if configured (before committing, so changes are formatted)
 	if fmtCmd := sctx.Config.Commands.Format; fmtCmd != "" {
+		if err := requireSafeBoundary(sctx, "format"); err != nil {
+			return nil, err
+		}
 		sctx.Log(fmt.Sprintf("running formatter: %s", fmtCmd))
 		output, exitCode, err := runStepShellCommand(sctx, fmtCmd)
 		if err != nil {
@@ -32,11 +38,17 @@ func (s *PushStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, e
 	}
 
 	// Commit any uncommitted changes from agent fixes
+	if err := requireSafeBoundary(sctx, "stage evidence"); err != nil {
+		return nil, err
+	}
 	if err := s.stageInRepoEvidence(sctx); err != nil {
 		return nil, err
 	}
 	status, _ := git.Run(ctx, sctx.WorkDir, "status", "--porcelain")
 	if strings.TrimSpace(status) != "" {
+		if err := requireSafeBoundary(sctx, "commit agent changes"); err != nil {
+			return nil, err
+		}
 		sctx.Log("committing agent changes...")
 		if _, err := git.Run(ctx, sctx.WorkDir, "add", "-A"); err != nil {
 			return nil, fmt.Errorf("stage agent changes: %w", err)
@@ -63,6 +75,9 @@ func (s *PushStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, e
 	upstreamSHA, lsErr := git.LsRemote(ctx, sctx.WorkDir, upstream, ref)
 	if lsErr != nil {
 		return nil, fmt.Errorf("ls-remote upstream: %w", lsErr)
+	}
+	if err := requireSafeBoundary(sctx, "push"); err != nil {
+		return nil, err
 	}
 	if upstreamSHA != "" {
 		// Existing branch: force-with-lease with explicit expected SHA

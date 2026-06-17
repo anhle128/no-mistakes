@@ -109,6 +109,81 @@ func TestOpenMigratesExistingStepRoundsColumns(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesExistingRunsBoundaryAuditColumns(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
+
+	legacyDB, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(wal)&_pragma=foreign_keys(on)")
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	if _, err := legacyDB.Exec(`
+		CREATE TABLE runs (
+			id TEXT PRIMARY KEY,
+			repo_id TEXT NOT NULL,
+			branch TEXT NOT NULL,
+			head_sha TEXT NOT NULL,
+			base_sha TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			pr_url TEXT,
+			error TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		);
+	`); err != nil {
+		legacyDB.Close()
+		t.Fatalf("create legacy runs table: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	d, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("open migrated db: %v", err)
+	}
+	t.Cleanup(func() { d.Close() })
+
+	rows, err := d.sql.Query(`PRAGMA table_info(runs)`)
+	if err != nil {
+		t.Fatalf("pragma table_info(runs): %v", err)
+	}
+	defer rows.Close()
+
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var colType string
+		var notNull int
+		var dfltValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate table_info: %v", err)
+	}
+
+	for _, name := range []string{
+		"boundary_status",
+		"boundary_reason",
+		"boundary_detail",
+		"boundary_expected_worktree_path",
+		"boundary_actual_worktree_path",
+		"boundary_git_common_dir",
+		"boundary_gate_repo_path",
+		"boundary_fingerprint",
+		"boundary_verified_at",
+		"boundary_verifier_version",
+	} {
+		if !columns[name] {
+			t.Fatalf("expected migrated column %q to exist", name)
+		}
+	}
+}
+
 func TestOpenWaitsForTransientMigrationLock(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
 	locker, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(wal)&_pragma=foreign_keys(on)")

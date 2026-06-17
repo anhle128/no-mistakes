@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -224,6 +225,39 @@ func TestTestStep_UserIntentRunsConfiguredCommandThenEvidenceAgent(t *testing.T)
 	t.Logf("evidence findings JSON: %s", outcome.Findings)
 	if len(findings.Tested) != 2 || findings.Tested[0] != testCmd || findings.Tested[1] != "manual screenshot review" {
 		t.Fatalf("expected baseline command and agent-tested evidence to be recorded, got %+v", findings.Tested)
+	}
+}
+
+func TestTestStep_EvidenceAgentRequiresSafeBoundaryBeforeAgent(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	callCount := 0
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			callCount++
+			os.WriteFile(filepath.Join(dir, "new_test.go"), []byte("package main\n"), 0o644)
+			return &agent.Result{Output: json.RawMessage(`{"findings":[],"summary":"","tested":["manual evidence check"],"testing_summary":"checked evidence"}`)}, nil
+		},
+	}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.RequireSafeBoundary = func(action string) error {
+		if action != "collect test evidence" {
+			t.Fatalf("boundary action = %q, want collect test evidence", action)
+		}
+		return errors.New("unsafe boundary")
+	}
+
+	step := &TestStep{}
+	if _, err := step.Execute(sctx); err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("Execute error = %v, want unsafe boundary", err)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no test evidence agent call before safe boundary, got %d", callCount)
+	}
+	if status := gitStatusPorcelain(t, dir); status != "" {
+		t.Fatalf("expected clean worktree after withheld test evidence agent, got %q", status)
 	}
 }
 

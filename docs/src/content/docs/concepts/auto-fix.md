@@ -69,6 +69,7 @@ Agent-driven findings now use an `action` field instead of `requires_human_revie
 
 `ask-user` is meant for findings that need human judgment - for example, questioning an intentional product or design choice, arguing that an intentional addition, removal, or guard should be undone, or reporting that the test step could not produce enough evidence for the available intent. Routine correctness, reliability, or security fixes still stay `auto-fix` even if the smallest fix reintroduces a small amount of previously deleted logic. Agents driving the AXI skill should relay `ask-user` findings to the user unless they have explicit `--yes` consent to resolve gates unattended.
 In the TUI, yolo mode is an explicit override that auto-resolves paused steps by treating `auto-fix` and `ask-user` findings as consent to run one fix round.
+Yolo mode and AXI `--yes` require a fresh safe execution-boundary proof before they resolve a gate unattended. When the run worktree is missing, points at the user's primary checkout, or cannot be verified against the managed gate repository, automation is withheld and the step remains paused for manual action.
 Steps with only `no-op` findings are approved as-is.
 
 The `review`, `test`, and configured-command `lint` steps use this shared model directly. The `document` step also uses the same `action` field, but unresolved documentation findings pause for approval because the initial document pass already attempted the documentation updates it could make safely.
@@ -91,6 +92,7 @@ On follow-up review passes, that history tells the agent not to re-report user-i
 
 After a user-triggered fix, the step re-runs and pauses again to show you the results (`fix_review` status). You can then approve, fix again, skip, or abort.
 Yolo and AXI `--yes` approve that fix review automatically after their one fix round, so a finding that remains after the fix does not trigger an unbounded fix loop.
+If the safe boundary proof becomes unsafe or unknown between the fix and fix review, the automatic approval is withheld and the fix review remains manual.
 
 ## Fix commits
 

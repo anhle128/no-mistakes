@@ -63,6 +63,10 @@ func testRun() *ipc.RunInfo {
 		HeadSHA: "abc12345def67890",
 		BaseSHA: "000000000000",
 		Status:  types.RunRunning,
+		Boundary: types.ExecutionBoundary{
+			Status: types.BoundarySafe,
+			Reason: types.BoundaryReasonVerifiedRunWorktree,
+		},
 		Steps: []ipc.StepResultInfo{
 			{ID: "s1", StepName: types.StepReview, StepOrder: 1, Status: types.StepStatusPending},
 			{ID: "s2", StepName: types.StepTest, StepOrder: 2, Status: types.StepStatusPending},

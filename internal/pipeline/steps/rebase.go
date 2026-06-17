@@ -67,6 +67,9 @@ func (s *RebaseStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome,
 
 	if sctx.Fixing {
 		for _, target := range targets {
+			if err := requireSafeAutomaticSourceWork(sctx, "fix rebase "+target); err != nil {
+				return nil, err
+			}
 			if err := rebaseWithAgent(ctx, sctx, target); err != nil {
 				return nil, err
 			}
@@ -195,6 +198,9 @@ func tryRebase(ctx context.Context, sctx *pipeline.StepContext, targetRef string
 		return nil, nil
 	}
 
+	if err := requireSafeAutomaticSourceWork(sctx, "rebase"); err != nil {
+		return nil, err
+	}
 	sctx.Log(fmt.Sprintf("rebasing onto %s...", targetRef))
 	if _, err := git.Run(ctx, sctx.WorkDir, "rebase", targetRef); err != nil {
 		conflictFiles := rebaseConflictFiles(ctx, sctx.WorkDir)
@@ -229,6 +235,10 @@ func rebaseWithAgent(ctx context.Context, sctx *pipeline.StepContext, targetRef 
 	}
 	sctx.Log("conflicts detected, asking agent to resolve...")
 	conflictFiles := rebaseConflictFiles(ctx, sctx.WorkDir)
+	if err := requireSafeAutomaticSourceWork(sctx, "resolve rebase conflicts"); err != nil {
+		_, _ = git.Run(ctx, sctx.WorkDir, "rebase", "--abort")
+		return err
+	}
 
 	prompt := fmt.Sprintf(
 		`Resolve git rebase conflicts. The rebase of the current branch onto %s has conflicts.
@@ -263,6 +273,10 @@ Instructions:
 		_, _ = git.Run(ctx, sctx.WorkDir, "rebase", "--abort")
 		return fmt.Errorf("agent resolve conflicts: %w", err)
 	}
+	if err := requireSafeAutomaticSourceWork(sctx, "accept rebase conflict resolution"); err != nil {
+		_, _ = git.Run(ctx, sctx.WorkDir, "rebase", "--abort")
+		return err
+	}
 
 	// Verify rebase completed (no rebase still in progress)
 	if rebaseInProgress(ctx, sctx.WorkDir) {
@@ -296,6 +310,9 @@ func shouldSkipRebase(ctx context.Context, sctx *pipeline.StepContext, targetRef
 		return true, nil
 	}
 	if _, err := git.Run(ctx, sctx.WorkDir, "merge-base", "--is-ancestor", "HEAD", targetRef); err == nil {
+		if err := requireSafeAutomaticSourceWork(sctx, "fast-forward rebase"); err != nil {
+			return false, err
+		}
 		sctx.Log(fmt.Sprintf("fast-forwarding to %s", targetRef))
 		if _, err := git.Run(ctx, sctx.WorkDir, "reset", "--hard", targetRef); err != nil {
 			return false, fmt.Errorf("fast-forward to %s: %w", targetRef, err)

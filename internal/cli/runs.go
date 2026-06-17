@@ -75,5 +75,6 @@ func printRunLine(w io.Writer, r *db.Run) {
 	if r.PRURL != nil {
 		pr = fmt.Sprintf("  %s", *r.PRURL)
 	}
-	fmt.Fprintf(w, "  %-12s %-20s %s  %s%s\n", runStatusStyle(r.Status), r.Branch, sDim.Render(sha), sDim.Render(ts), pr)
+	boundary := r.Boundary()
+	fmt.Fprintf(w, "  %-12s %-20s %s  %s  %s/%s%s\n", runStatusStyle(r.Status), r.Branch, sDim.Render(sha), sDim.Render(ts), boundary.Status, boundary.Reason, pr)
 }

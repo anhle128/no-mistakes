@@ -10,11 +10,16 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/scm"
 )
 
-// autoFixCI runs the agent to fix CI failures and/or merge conflicts, then commits and pushes.
+// fixCI runs the agent to fix CI failures and/or merge conflicts, then commits and pushes.
 // Returns (true, nil) when changes were committed and pushed, (false, nil)
 // when the agent produced no changes, or (false, err) on failure.
-func (s *CIStep) autoFixCI(sctx *pipeline.StepContext, host scm.Host, pr *scm.PR, failingNames []string, mergeConflict bool) (bool, error) {
+func (s *CIStep) fixCI(sctx *pipeline.StepContext, host scm.Host, pr *scm.PR, failingNames []string, mergeConflict bool, requireBoundary bool) (bool, error) {
 	ctx := sctx.Ctx
+	if requireBoundary {
+		if err := requireSafeBoundary(sctx, "ci auto-fix"); err != nil {
+			return false, err
+		}
+	}
 	baseSHA := resolveBranchBaseSHA(ctx, sctx.WorkDir, sctx.Run.BaseSHA, sctx.Repo.DefaultBranch)
 	rebaseBaseSHA := resolveDefaultBranchTipSHA(ctx, sctx.WorkDir, sctx.Repo.UpstreamURL, sctx.Run.BaseSHA, sctx.Repo.DefaultBranch)
 	promptBaseSHA := baseSHA
@@ -104,13 +109,17 @@ CI logs:
 		return false, fmt.Errorf("agent CI fix: %w", err)
 	}
 
-	return s.commitAndPush(sctx)
+	return s.commitAndPushWithBoundary(sctx, requireBoundary)
 }
 
 // commitAndPush commits any uncommitted changes and force-pushes to upstream.
 // Returns (true, nil) when changes were pushed, (false, nil) when there was
 // nothing to commit, or (false, err) on failure.
 func (s *CIStep) commitAndPush(sctx *pipeline.StepContext) (bool, error) {
+	return s.commitAndPushWithBoundary(sctx, true)
+}
+
+func (s *CIStep) commitAndPushWithBoundary(sctx *pipeline.StepContext, requireBoundary bool) (bool, error) {
 	status, err := stepGitRun(sctx, "status", "--porcelain")
 	if err != nil {
 		return false, fmt.Errorf("check CI changes: %w", err)
@@ -119,11 +128,16 @@ func (s *CIStep) commitAndPush(sctx *pipeline.StepContext) (bool, error) {
 		sctx.Log("no changes to commit")
 		headSHA, err := stepGitHeadSHA(sctx)
 		if err == nil && headSHA != sctx.Run.HeadSHA {
-			return s.pushUpdatedHeadSHA(sctx, headSHA)
+			return s.pushUpdatedHeadSHAWithBoundary(sctx, headSHA, requireBoundary)
 		}
 		return false, nil
 	}
 
+	if requireBoundary {
+		if err := requireSafeBoundary(sctx, "commit CI fix"); err != nil {
+			return false, err
+		}
+	}
 	if _, err := stepGitRun(sctx, "add", "-A"); err != nil {
 		return false, fmt.Errorf("stage CI changes: %w", err)
 	}
@@ -135,16 +149,25 @@ func (s *CIStep) commitAndPush(sctx *pipeline.StepContext) (bool, error) {
 		return false, fmt.Errorf("resolve head after commit: %w", err)
 	}
 
-	return s.pushUpdatedHeadSHA(sctx, headSHA)
+	return s.pushUpdatedHeadSHAWithBoundary(sctx, headSHA, requireBoundary)
 }
 
 func (s *CIStep) pushUpdatedHeadSHA(sctx *pipeline.StepContext, newHeadSHA string) (bool, error) {
+	return s.pushUpdatedHeadSHAWithBoundary(sctx, newHeadSHA, true)
+}
+
+func (s *CIStep) pushUpdatedHeadSHAWithBoundary(sctx *pipeline.StepContext, newHeadSHA string, requireBoundary bool) (bool, error) {
 	ref := normalizedBranchRef(sctx.Run.Branch)
 
 	upstreamSHA, lsErr := stepGitLsRemote(sctx, sctx.Repo.UpstreamURL, ref)
 	if lsErr != nil {
 		slog.Warn("ls-remote failed, pushing without force-with-lease", "ref", ref, "error", lsErr)
 	} else if upstreamSHA == newHeadSHA {
+		if requireBoundary {
+			if err := requireSafeBoundary(sctx, "record CI head"); err != nil {
+				return false, err
+			}
+		}
 		if _, err := stepGitRun(sctx, "update-ref", ref, newHeadSHA); err != nil {
 			return false, fmt.Errorf("update local branch ref: %w", err)
 		}
@@ -153,6 +176,11 @@ func (s *CIStep) pushUpdatedHeadSHA(sctx *pipeline.StepContext, newHeadSHA strin
 			return false, err
 		}
 		return false, nil
+	}
+	if requireBoundary {
+		if err := requireSafeBoundary(sctx, "push CI fix"); err != nil {
+			return false, err
+		}
 	}
 	if err := stepGitPush(sctx, sctx.Repo.UpstreamURL, ref, upstreamSHA, upstreamSHA != ""); err != nil {
 		if lsErr != nil {

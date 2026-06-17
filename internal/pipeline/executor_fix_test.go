@@ -744,7 +744,7 @@ func TestExecutor_UserFixRecordsSelectedFindingIDsAndFixSummary(t *testing.T) {
 func TestExecutor_AutoFixRecordsSelectedFindingIDs(t *testing.T) {
 	database, p, run, repo := setupTest(t)
 	cfg := &config.Config{AutoFix: config.AutoFix{Review: 1}}
-	workDir := t.TempDir()
+	workDir := setupManagedRunWorktree(t, p, repo, run)
 
 	callCount := 0
 	step := &adaptiveCallStep{

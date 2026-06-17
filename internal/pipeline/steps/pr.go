@@ -37,10 +37,7 @@ func (s *PRStep) Name() types.StepName { return types.StepPR }
 func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, error) {
 	ctx := sctx.Ctx
 
-	branch := sctx.Run.Branch
-	if strings.HasPrefix(branch, "refs/heads/") {
-		branch = strings.TrimPrefix(branch, "refs/heads/")
-	}
+	branch := strings.TrimPrefix(sctx.Run.Branch, "refs/heads/")
 	if branch == sctx.Repo.DefaultBranch {
 		sctx.Log(fmt.Sprintf("skipping PR creation on default branch %s", branch))
 		return &pipeline.StepOutcome{Skipped: true}, nil
@@ -56,20 +53,25 @@ func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 		return &pipeline.StepOutcome{Skipped: true}, nil
 	}
 
-	// Resolve the branch base so PR summaries cover the full branch delta.
-	baseSHA := resolveBranchBaseSHA(ctx, sctx.WorkDir, sctx.Run.BaseSHA, sctx.Repo.DefaultBranch)
-	content, err := s.buildPRContent(sctx, branch, baseSHA)
-	if err != nil {
-		return nil, err
-	}
-
 	sctx.Log(fmt.Sprintf("checking for existing pull request on branch %s...", branch))
 	existing, err := host.FindPR(ctx, branch, sctx.Repo.DefaultBranch)
 	if err != nil {
 		return nil, err
 	}
+	// Resolve the branch base so PR summaries cover the full branch delta.
+	baseSHA := resolveBranchBaseSHA(ctx, sctx.WorkDir, sctx.Run.BaseSHA, sctx.Repo.DefaultBranch)
 	if existing != nil {
 		sctx.Log(fmt.Sprintf("pull request already exists: %s, updating...", describePR(existing)))
+		if err := requireSafeAutomaticSourceWork(sctx, "draft pull request content"); err != nil {
+			return nil, err
+		}
+		content, err := s.buildPRContent(sctx, branch, baseSHA)
+		if err != nil {
+			return nil, err
+		}
+		if err := requireSafeBoundary(sctx, "update pull request"); err != nil {
+			return nil, err
+		}
 		updated, err := host.UpdatePR(ctx, existing, scm.PRContent(content))
 		if err != nil {
 			sctx.Log(fmt.Sprintf("warning: failed to update PR: %v", err))
@@ -85,6 +87,16 @@ func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 	}
 
 	sctx.Log("creating pull request...")
+	if err := requireSafeAutomaticSourceWork(sctx, "draft pull request content"); err != nil {
+		return nil, err
+	}
+	content, err := s.buildPRContent(sctx, branch, baseSHA)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireSafeBoundary(sctx, "create pull request"); err != nil {
+		return nil, err
+	}
 	created, err := host.CreatePR(ctx, branch, sctx.Repo.DefaultBranch, scm.PRContent(content))
 	if err != nil {
 		return nil, err

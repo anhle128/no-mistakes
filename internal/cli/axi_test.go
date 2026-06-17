@@ -44,6 +44,57 @@ func TestRunViewFromDBAwaitingStep(t *testing.T) {
 	}
 }
 
+func TestGateAutomationFromDBPersistsNotRequested(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	repo, err := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := d.InsertRun(repo.ID, "feature", "abc", "def")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, err := d.InsertStepResult(run.ID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UpdateStepStatus(step.ID, types.StepStatusAwaitingApproval); err != nil {
+		t.Fatal(err)
+	}
+	steps, err := d.GetStepsByRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rv := runViewFromDB(run, steps)
+
+	automation := gateAutomationFromDB(d, run, rv, types.ApprovalSurfaceAXI)
+	if automation == nil || automation.Status != types.GateAutomationNotRequested {
+		t.Fatalf("automation = %+v, want not_requested", automation)
+	}
+	events, err := d.GetRunEvents(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].EventType != db.RunEventGateAutomationNotRequested {
+		t.Fatalf("events = %+v, want one not-requested event", events)
+	}
+	automation = gateAutomationFromDB(d, run, rv, types.ApprovalSurfaceAXI)
+	if automation == nil || automation.Status != types.GateAutomationNotRequested {
+		t.Fatalf("second automation = %+v, want not_requested", automation)
+	}
+	events, err = d.GetRunEvents(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events after second observation = %d, want idempotent 1", len(events))
+	}
+}
+
 func TestFindingsTally(t *testing.T) {
 	rv := runView{Steps: []stepView{
 		{FindingsJSON: findingsJSON(t, []types.Finding{

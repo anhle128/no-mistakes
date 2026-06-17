@@ -62,6 +62,28 @@ func (d *DB) StepFixSummaries(stepResultID string) ([]string, error) {
 	return summaries, nil
 }
 
+// StepGateVersion returns the controller-owned version of the current gate for
+// a step. The latest persisted round distinguishes repeated gates that have the
+// same step, status, and findings across a run.
+func (d *DB) StepGateVersion(stepResultID string) (string, error) {
+	rounds, err := d.GetRoundsByStep(stepResultID)
+	if err != nil {
+		return "", err
+	}
+	if len(rounds) == 0 {
+		return FallbackStepGateVersion(stepResultID), nil
+	}
+	latest := rounds[len(rounds)-1]
+	return fmt.Sprintf("step:%s:round:%d:%s", stepResultID, latest.Round, latest.ID), nil
+}
+
+func FallbackStepGateVersion(stepResultID string) string {
+	if stepResultID == "" {
+		return "step:unknown:round:0"
+	}
+	return fmt.Sprintf("step:%s:round:0", stepResultID)
+}
+
 // InsertStepRound creates a new round record for a step result. fixSummary may
 // be nil for non-fix rounds or when the agent produced no summary.
 func (d *DB) InsertStepRound(stepResultID string, round int, trigger string, findingsJSON *string, fixSummary *string, durationMS int64) (*StepRound, error) {

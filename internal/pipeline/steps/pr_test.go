@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,6 +82,59 @@ func TestPRStep_UpdatesExistingPR(t *testing.T) {
 	}
 	if run.PRURL == nil || *run.PRURL != "https://github.com/test/repo/pull/42" {
 		t.Errorf("PR URL = %v, want https://github.com/test/repo/pull/42", run.PRURL)
+	}
+}
+
+func TestPRStep_UpdateExistingPRRequiresSafeBoundary(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	env, logFile := fakeGH(t, "https://github.com/test/repo/pull/42")
+
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Env = env
+	var boundaryActions []string
+	sctx.RequireSafeBoundary = func(action string) error {
+		boundaryActions = append(boundaryActions, action)
+		switch action {
+		case "draft pull request content":
+			return nil
+		case "update pull request":
+			return errors.New("unsafe boundary")
+		default:
+			t.Fatalf("unexpected boundary action %q", action)
+		}
+		return nil
+	}
+
+	step := &PRStep{}
+	if _, err := step.Execute(sctx); err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("Execute error = %v, want unsafe boundary", err)
+	}
+	if got, want := strings.Join(boundaryActions, ","), "draft pull request content,update pull request"; got != want {
+		t.Fatalf("boundary actions = %q, want %q", got, want)
+	}
+
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghLog := string(logData)
+	if !strings.Contains(ghLog, "pr list") {
+		t.Fatalf("expected existing PR lookup before boundary guard, got:\n%s", ghLog)
+	}
+	for _, notWant := range []string{"pr edit", "pr create"} {
+		if strings.Contains(ghLog, notWant) {
+			t.Fatalf("provider write %q ran despite unsafe boundary:\n%s", notWant, ghLog)
+		}
+	}
+	run, err := sctx.DB.GetRun(sctx.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.PRURL != nil {
+		t.Fatalf("PR URL persisted despite unsafe boundary: %q", *run.PRURL)
 	}
 }
 
@@ -293,6 +347,105 @@ func TestPRStep_CreatesNewPR(t *testing.T) {
 	}
 	if run.PRURL == nil || *run.PRURL != "https://github.com/test/repo/pull/99" {
 		t.Errorf("PR URL = %v, want https://github.com/test/repo/pull/99", run.PRURL)
+	}
+}
+
+func TestPRStep_CreatePRRequiresSafeBoundary(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	env, logFile := fakeGH(t, "")
+
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Env = env
+	var boundaryActions []string
+	sctx.RequireSafeBoundary = func(action string) error {
+		boundaryActions = append(boundaryActions, action)
+		switch action {
+		case "draft pull request content":
+			return nil
+		case "create pull request":
+			return errors.New("unsafe boundary")
+		default:
+			t.Fatalf("unexpected boundary action %q", action)
+		}
+		return nil
+	}
+
+	step := &PRStep{}
+	if _, err := step.Execute(sctx); err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("Execute error = %v, want unsafe boundary", err)
+	}
+	if got, want := strings.Join(boundaryActions, ","), "draft pull request content,create pull request"; got != want {
+		t.Fatalf("boundary actions = %q, want %q", got, want)
+	}
+
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghLog := string(logData)
+	if !strings.Contains(ghLog, "pr list") {
+		t.Fatalf("expected existing PR lookup before boundary guard, got:\n%s", ghLog)
+	}
+	for _, notWant := range []string{"pr create", "pr edit"} {
+		if strings.Contains(ghLog, notWant) {
+			t.Fatalf("provider write %q ran despite unsafe boundary:\n%s", notWant, ghLog)
+		}
+	}
+	run, err := sctx.DB.GetRun(sctx.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.PRURL != nil {
+		t.Fatalf("PR URL persisted despite unsafe boundary: %q", *run.PRURL)
+	}
+}
+
+func TestPRStep_DraftContentRequiresSafeBoundaryBeforeAgent(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	env, logFile := fakeGH(t, "")
+
+	callCount := 0
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			callCount++
+			return &agent.Result{Output: json.RawMessage(`{"title":"fix: should not run","body":"## Summary\n\n- no"}`)}, nil
+		},
+	}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Env = env
+	sctx.RequireSafeBoundary = func(action string) error {
+		if action != "draft pull request content" {
+			t.Fatalf("boundary action = %q, want draft pull request content", action)
+		}
+		return errors.New("unsafe boundary")
+	}
+
+	step := &PRStep{}
+	if _, err := step.Execute(sctx); err == nil || !strings.Contains(err.Error(), "unsafe boundary") {
+		t.Fatalf("Execute error = %v, want unsafe boundary", err)
+	}
+	if callCount != 0 {
+		t.Fatalf("expected no PR content agent call before safe boundary, got %d", callCount)
+	}
+
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghLog := string(logData)
+	if !strings.Contains(ghLog, "pr list") {
+		t.Fatalf("expected existing PR lookup before draft guard, got:\n%s", ghLog)
+	}
+	for _, notWant := range []string{"pr create", "pr edit"} {
+		if strings.Contains(ghLog, notWant) {
+			t.Fatalf("provider write %q ran despite unsafe boundary:\n%s", notWant, ghLog)
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -81,6 +82,9 @@ func TestModel_Yolo_AutoApprovesAwaitingStep(t *testing.T) {
 	}
 	if calls[0].Step != types.StepReview {
 		t.Fatalf("step = %s, want %s", calls[0].Step, types.StepReview)
+	}
+	if calls[0].DecisionSource != types.DecisionSourceUnattended || calls[0].ApprovalSurface != types.ApprovalSurfaceTUI || calls[0].ConsentMode != types.ConsentModeYolo {
+		t.Fatalf("yolo metadata = %+v, want unattended tui yolo", calls[0])
 	}
 }
 
@@ -296,6 +300,141 @@ func TestModel_Yolo_NoAutoApproveWhenOff(t *testing.T) {
 
 	if cmd := m.maybeAutoApproveCmd(); cmd != nil {
 		t.Fatal("expected no auto-approve command when yolo off")
+	}
+}
+
+func TestModel_Yolo_WithholdsWhenBoundaryUnknown(t *testing.T) {
+	sock := testSocketPath(t)
+	srv := startTestIPCServer(t, sock)
+
+	var mu sync.Mutex
+	var calls []ipc.RespondParams
+	var fingerprint string
+	srv.Handle(ipc.MethodRespond, func(_ context.Context, raw json.RawMessage) (interface{}, error) {
+		var params ipc.RespondParams
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		calls = append(calls, params)
+		mu.Unlock()
+		return nil, errors.New("withheld by daemon")
+	})
+	srv.Handle(ipc.MethodGetRun, func(_ context.Context, raw json.RawMessage) (interface{}, error) {
+		run := testRun()
+		run.Boundary = types.ExecutionBoundary{Status: types.BoundaryUnknown, Reason: types.BoundaryReasonMissingWorktree, Detail: "missing"}
+		run.Steps[0].Status = types.StepStatusAwaitingApproval
+		run.GateAutomation = &types.GateAutomation{
+			GateID:          "review",
+			GateFingerprint: fingerprint,
+			Status:          types.GateAutomationWithheld,
+			RequestedMode:   types.ConsentModeYolo,
+			Reason:          "unknown",
+			Message:         "withheld by daemon",
+		}
+		return &ipc.GetRunResult{Run: run}, nil
+	})
+	client, err := ipc.Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	run := testRun()
+	run.Boundary = types.ExecutionBoundary{Status: types.BoundaryUnknown, Reason: types.BoundaryReasonMissingWorktree, Detail: "missing"}
+	run.Steps[0].Status = types.StepStatusAwaitingApproval
+	m := NewModel(sock, client, run)
+	m.yoloMode = true
+	_, fingerprint = m.gateIdentity(&m.steps[0])
+
+	cmd := m.maybeAutoApproveCmd()
+	if cmd == nil {
+		t.Fatal("expected yolo to notify daemon when boundary is unknown")
+	}
+	msg := cmd()
+	withheld, ok := msg.(automationWithheldMsg)
+	if !ok {
+		t.Fatalf("expected automationWithheldMsg, got %#v", msg)
+	}
+	updated, _ := m.Update(withheld)
+	model := updated.(Model)
+	if model.err != nil {
+		t.Fatalf("err = %v, want nil for persisted withheld automation", model.err)
+	}
+	if model.run.GateAutomation == nil {
+		t.Fatal("expected local withheld automation state")
+	}
+	if model.run.GateAutomation.Status != types.GateAutomationWithheld {
+		t.Fatalf("automation status = %q, want withheld", model.run.GateAutomation.Status)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 1 {
+		t.Fatalf("respond calls = %d, want 1", len(calls))
+	}
+	if calls[0].DecisionSource != types.DecisionSourceUnattended || calls[0].ConsentMode != types.ConsentModeYolo {
+		t.Fatalf("metadata = %+v, want unattended yolo", calls[0])
+	}
+}
+
+func TestModel_Yolo_DoesNotCreateLocalWithheldStateFromStaleBoundary(t *testing.T) {
+	sock, client, snapshot := captureRespond(t)
+
+	run := testRun()
+	run.Boundary = types.ExecutionBoundary{Status: types.BoundaryUnknown, Reason: types.BoundaryReasonMissingWorktree, Detail: "stale local state"}
+	run.Steps[0].Status = types.StepStatusAwaitingApproval
+	fj := `{"findings":[{"id":"review-1","severity":"warning","description":"needs fix","action":"ask-user"}],"summary":"1 issue"}`
+	run.Steps[0].FindingsJSON = &fj
+	m := NewModel(sock, client, run)
+	m.yoloMode = true
+
+	cmd := m.maybeAutoApproveCmd()
+	if cmd == nil {
+		t.Fatal("expected yolo command even when local boundary is stale unknown")
+	}
+	if m.run.GateAutomation != nil {
+		t.Fatalf("local GateAutomation = %+v, want daemon-owned state only", m.run.GateAutomation)
+	}
+	if msg := cmd(); msg != nil {
+		t.Fatalf("expected nil msg after daemon accepted response, got %#v", msg)
+	}
+	calls := snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("respond calls = %d, want 1", len(calls))
+	}
+	if calls[0].Action != types.ActionFix {
+		t.Fatalf("action = %s, want fix", calls[0].Action)
+	}
+}
+
+func TestModel_View_ShowsPersistedWithheldAutomationWhenYoloOff(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	run := testRun()
+	run.GateAutomation = &types.GateAutomation{
+		GateID:          string(types.StepReview),
+		Status:          types.GateAutomationWithheld,
+		RequestedMode:   types.ConsentModeYes,
+		Reason:          string(types.BoundaryUnknown),
+		Message:         "Unattended automation was withheld because the run boundary is unknown.",
+		RecoveryOptions: []string{"Respond manually to this gate"},
+	}
+	m := NewModel("", nil, run)
+	m.width = 120
+	m.height = 40
+	m.yoloMode = false
+
+	plain := stripANSI(m.View())
+	for _, want := range []string{
+		"YOLO withheld",
+		"mode yes",
+		"gate review",
+		"reason unknown",
+		"Unattended automation was withheld because the run boundary is unknown.",
+		"Respond manually to this gate",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("view missing %q:\n%s", want, plain)
+		}
 	}
 }
 

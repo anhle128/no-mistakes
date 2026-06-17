@@ -180,6 +180,12 @@ fix round, accepts the resulting fix review, and approves gates with only
 `no-op` findings. Only use it when the user has asked you to drive the whole
 run without checking back.
 
+Unattended `--yes` is honored only when no-mistakes can prove the run is still
+inside its managed disposable worktree. If output includes `automation.status: withheld`,
+do not convert that into a manual `respond` call yourself. Report the boundary
+reason and recovery options from the `automation` fields, then wait for an
+explicit per-gate user decision or a fresh run with a safe boundary.
+
 ## Inspecting state
 
 ```sh

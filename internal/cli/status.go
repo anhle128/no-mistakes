@@ -2,9 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/kunchenguid/no-mistakes/internal/daemon"
+	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
 
@@ -55,6 +57,15 @@ func newStatusCmd() *cobra.Command {
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render("     id:"), activeRun.ID)
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render(" branch:"), activeRun.Branch)
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render(" status:"), runStatusStyle(activeRun.Status))
+					steps, err := d.GetStepsByRun(activeRun.ID)
+					if err != nil {
+						return "", fmt.Errorf("load active run steps: %w", err)
+					}
+					rv := runViewFromDB(activeRun, steps)
+					rv.GateAutomation = gateAutomationFromDB(d, activeRun, rv, types.ApprovalSurfaceTerminal)
+					boundary := rv.Boundary
+					fmt.Fprintf(w, "  %s  %s (%s)\n", sDim.Render("boundary:"), boundary.Status, boundary.Reason)
+					printStatusAutomation(w, rv.GateAutomation)
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render("   head:"), sDim.Render(sha))
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render("started:"), sDim.Render(ts))
 				} else {
@@ -64,6 +75,26 @@ func newStatusCmd() *cobra.Command {
 				return "success", nil
 			})
 		},
+	}
+}
+
+func printStatusAutomation(w io.Writer, automation *types.GateAutomation) {
+	if automation == nil {
+		return
+	}
+	fmt.Fprintf(w, "  %s  %s\n", sDim.Render("automation:"), automation.Status)
+	fmt.Fprintf(w, "  %s  %s\n", sDim.Render("      mode:"), automation.RequestedMode)
+	if automation.GateID != "" {
+		fmt.Fprintf(w, "  %s  %s\n", sDim.Render("      gate:"), automation.GateID)
+	}
+	if automation.Reason != "" {
+		fmt.Fprintf(w, "  %s  %s\n", sDim.Render("    reason:"), automation.Reason)
+	}
+	if automation.Message != "" {
+		fmt.Fprintf(w, "  %s  %s\n", sDim.Render("   message:"), automation.Message)
+	}
+	for _, option := range automation.RecoveryOptions {
+		fmt.Fprintf(w, "  %s  %s\n", sDim.Render("      help:"), option)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kunchenguid/no-mistakes/internal/agent"
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/git"
@@ -275,6 +276,31 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 		trackStartFailure("create_worktree")
 		return "", fmt.Errorf("create worktree: %w", err)
 	}
+	initialBoundary := boundary.VerifyRunWorktree(ctx, m.paths, repo.ID, run.ID, wtDir)
+	if err := m.db.UpdateRunBoundary(run.ID, initialBoundary); err != nil {
+		slog.Warn("failed to persist initial run boundary", "run_id", run.ID, "error", err)
+	} else {
+		run.BoundaryStatus = initialBoundary.Status
+		run.BoundaryReason = initialBoundary.Reason
+		run.BoundaryDetail = initialBoundary.Detail
+		run.BoundaryExpectedWorktreePath = initialBoundary.ExpectedWorktreePath
+		run.BoundaryActualWorktreePath = initialBoundary.ActualWorktreePath
+		run.BoundaryGitCommonDir = initialBoundary.GitCommonDir
+		run.BoundaryGateRepoPath = initialBoundary.GateRepoPath
+		run.BoundaryFingerprint = initialBoundary.Fingerprint
+		run.BoundaryVerifierVersion = initialBoundary.VerifierVersion
+		if initialBoundary.VerifiedAt > 0 {
+			run.BoundaryVerifiedAt = &initialBoundary.VerifiedAt
+		}
+	}
+	if _, err := m.db.InsertRunEvent(db.RunEvent{
+		RunID:     run.ID,
+		EventType: db.RunEventBoundaryRefreshed,
+		Reason:    string(initialBoundary.Reason),
+		Message:   initialBoundary.Detail,
+	}); err != nil {
+		slog.Warn("failed to record initial boundary event", "run_id", run.ID, "error", err)
+	}
 	if err := git.CopyLocalUserIdentity(ctx, repo.WorkingPath, wtDir); err != nil {
 		m.db.UpdateRunError(run.ID, fmt.Sprintf("configure worktree git identity: %s", err))
 		trackStartFailure("configure_worktree_identity")
@@ -473,6 +499,13 @@ func (m *RunManager) HandleRespond(runID string, step types.StepName, action typ
 // HandleRespondWithOverrides is like HandleRespond but also forwards user
 // instructions and user-authored findings to the executor.
 func (m *RunManager) HandleRespondWithOverrides(runID string, step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, addedFindings []types.Finding) error {
+	return m.HandleRespondWithMetadata(runID, step, action, findingIDs, instructions, addedFindings, types.DecisionMetadata{})
+}
+
+// HandleRespondWithMetadata routes an approval action after enforcing
+// unattended boundary proof and recording decision metadata.
+func (m *RunManager) HandleRespondWithMetadata(runID string, step types.StepName, action types.ApprovalAction, findingIDs []string, instructions map[string]string, addedFindings []types.Finding, meta types.DecisionMetadata) error {
+	meta = types.NormalizeRespondDecisionMetadata(meta)
 	m.mu.Lock()
 	exec, ok := m.executors[runID]
 	m.mu.Unlock()
@@ -481,7 +514,107 @@ func (m *RunManager) HandleRespondWithOverrides(runID string, step types.StepNam
 		return fmt.Errorf("no active executor for run %s", runID)
 	}
 
-	return exec.RespondWithOverrides(step, action, findingIDs, instructions, addedFindings)
+	gateID, fingerprint := m.gateIdentity(runID, step, meta)
+	meta.GateID = gateID
+	meta.GateFingerprint = fingerprint
+
+	currentBoundary := types.ExecutionBoundary{Status: types.BoundaryUnknown, Reason: types.BoundaryReasonUnknown}
+	if run, err := m.db.GetRun(runID); err == nil && run != nil {
+		currentBoundary = run.Boundary()
+		if meta.DecisionSource == types.DecisionSourceUnattended {
+			currentBoundary = boundary.VerifyRunWorktree(context.Background(), m.paths, run.RepoID, run.ID, m.paths.WorktreeDir(run.RepoID, run.ID))
+			if err := m.db.UpdateRunBoundary(run.ID, currentBoundary); err != nil {
+				slog.Warn("failed to persist refreshed boundary", "run_id", run.ID, "error", err)
+			}
+			if _, err := m.db.InsertRunEvent(db.RunEvent{
+				RunID:     run.ID,
+				EventType: db.RunEventBoundaryRefreshed,
+				Reason:    string(currentBoundary.Reason),
+				Message:   currentBoundary.Detail,
+			}); err != nil {
+				slog.Warn("failed to record boundary refresh", "run_id", run.ID, "error", err)
+			}
+		}
+	}
+
+	if meta.DecisionSource == types.DecisionSourceUnattended {
+		automation := boundary.AutomationForBoundary(currentBoundary, gateID, fingerprint, meta.ConsentMode)
+		eventType := db.RunEventGateAutomationAllowed
+		if automation.Status == types.GateAutomationWithheld {
+			eventType = db.RunEventGateAutomationWithheld
+		}
+		if _, err := m.db.InsertRunEvent(db.RunEvent{
+			RunID:           runID,
+			EventType:       eventType,
+			StepName:        &step,
+			Action:          &action,
+			GateID:          gateID,
+			GateFingerprint: fingerprint,
+			Status:          automation.Status,
+			RequestedMode:   automation.RequestedMode,
+			Reason:          automation.Reason,
+			Message:         automation.Message,
+			DecisionSource:  meta.DecisionSource,
+			ActorType:       meta.ActorType,
+			ApprovalSurface: meta.ApprovalSurface,
+			ConsentMode:     meta.ConsentMode,
+		}); err != nil {
+			return fmt.Errorf("record gate automation event: %w", err)
+		}
+		if automation.Status == types.GateAutomationWithheld {
+			return fmt.Errorf("%s", automation.Message)
+		}
+	} else if currentBoundary.Status != "" {
+		if _, err := m.db.InsertRunEvent(db.RunEvent{
+			RunID:           runID,
+			EventType:       db.RunEventManualDecision,
+			StepName:        &step,
+			Action:          &action,
+			GateID:          gateID,
+			GateFingerprint: fingerprint,
+			DecisionSource:  meta.DecisionSource,
+			ActorType:       meta.ActorType,
+			ApprovalSurface: meta.ApprovalSurface,
+			ConsentMode:     meta.ConsentMode,
+			Reason:          string(currentBoundary.Status),
+			Message:         currentBoundary.Detail,
+		}); err != nil {
+			slog.Warn("failed to record manual gate decision", "run_id", runID, "error", err)
+		}
+	}
+
+	return exec.RespondWithMetadata(step, action, findingIDs, instructions, addedFindings, meta)
+}
+
+func (m *RunManager) gateIdentity(runID string, step types.StepName, meta types.DecisionMetadata) (string, string) {
+	gateID := string(step)
+	steps, err := m.db.GetStepsByRun(runID)
+	if err != nil {
+		return gateID, boundary.GateFingerprint(runID, step, types.StepStatusAwaitingApproval, db.FallbackStepGateVersion(""), "")
+	}
+	for _, s := range steps {
+		if s.StepName != step {
+			continue
+		}
+		findings := ""
+		if s.FindingsJSON != nil {
+			findings = *s.FindingsJSON
+		}
+		version, err := m.db.StepGateVersion(s.ID)
+		if err != nil {
+			slog.Warn("failed to compute gate version", "run_id", runID, "step", s.StepName, "error", err)
+			version = db.FallbackStepGateVersion(s.ID)
+		}
+		if meta.GateID != "" && strings.TrimSpace(meta.GateID) != gateID {
+			slog.Warn("ignoring client gate id mismatch", "run_id", runID, "client_gate_id", meta.GateID, "server_gate_id", gateID)
+		}
+		fingerprint := boundary.GateFingerprint(runID, s.StepName, s.Status, version, findings)
+		if meta.GateFingerprint != "" && strings.TrimSpace(meta.GateFingerprint) != fingerprint {
+			slog.Warn("ignoring client gate fingerprint mismatch", "run_id", runID, "step", s.StepName)
+		}
+		return gateID, fingerprint
+	}
+	return gateID, boundary.GateFingerprint(runID, step, types.StepStatusAwaitingApproval, db.FallbackStepGateVersion(""), "")
 }
 
 // Shutdown cancels all active runs. Called during daemon shutdown to prevent

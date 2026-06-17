@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/types"
@@ -82,6 +84,65 @@ func setupTest(t *testing.T) (*db.DB, *paths.Paths, *db.Run, *db.Repo) {
 		t.Fatal(err)
 	}
 	return database, p, run, repo
+}
+
+func setupManagedRunWorktree(t *testing.T, p *paths.Paths, repo *db.Repo, run *db.Run) string {
+	t.Helper()
+	ctx := context.Background()
+	gateDir := p.RepoDir(repo.ID)
+	if err := git.InitBare(ctx, gateDir); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.Run(ctx, source, "init", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.Run(ctx, source, "config", "user.email", "test@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.Run(ctx, source, "config", "user.name", "Test User"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.Run(ctx, source, "add", "README.md"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.Run(ctx, source, "commit", "-m", "initial"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.Run(ctx, source, "push", gateDir, "HEAD:refs/heads/main"); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := git.HeadSHA(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workDir := p.WorktreeDir(repo.ID, run.ID)
+	if err := os.MkdirAll(filepath.Dir(workDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := git.WorktreeAdd(ctx, gateDir, workDir, sha); err != nil {
+		t.Fatal(err)
+	}
+	run.HeadSHA = sha
+	run.BaseSHA = sha
+	if err := repoConfigureForTestWorktree(ctx, workDir); err != nil {
+		t.Fatal(err)
+	}
+	return workDir
+}
+
+func repoConfigureForTestWorktree(ctx context.Context, workDir string) error {
+	if _, err := git.Run(ctx, workDir, "config", "user.email", "test@example.com"); err != nil {
+		return err
+	}
+	_, err := git.Run(ctx, workDir, "config", "user.name", "Test User")
+	return err
 }
 
 // eventCollector is a thread-safe event accumulator for tests.

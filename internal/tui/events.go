@@ -12,6 +12,12 @@ func (m *Model) applyEvent(event ipc.Event) {
 	switch event.Type {
 	case ipc.EventRunUpdated, ipc.EventRunCreated:
 		m.err = nil
+		if event.Boundary != nil {
+			m.run.Boundary = *event.Boundary
+		}
+		if event.GateAutomation != nil {
+			m.run.GateAutomation = event.GateAutomation
+		}
 		if event.Status != nil {
 			m.run.Status = types.RunStatus(*event.Status)
 		}
@@ -21,6 +27,12 @@ func (m *Model) applyEvent(event ipc.Event) {
 
 	case ipc.EventRunCompleted:
 		m.err = nil
+		if event.Boundary != nil {
+			m.run.Boundary = *event.Boundary
+		}
+		if event.GateAutomation != nil {
+			m.run.GateAutomation = event.GateAutomation
+		}
 		if event.Status != nil {
 			m.run.Status = types.RunStatus(*event.Status)
 		}
@@ -47,6 +59,12 @@ func (m *Model) applyEvent(event ipc.Event) {
 
 	case ipc.EventStepCompleted:
 		m.err = nil
+		if event.Boundary != nil {
+			m.run.Boundary = *event.Boundary
+		}
+		if event.GateAutomation != nil {
+			m.run.GateAutomation = event.GateAutomation
+		}
 		m.syntheticSteps = false
 		m.flushPartialLog()
 		if event.StepName != nil && event.Status != nil {

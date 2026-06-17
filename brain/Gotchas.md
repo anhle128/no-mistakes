@@ -39,3 +39,23 @@ Why it went wrong: I stayed in interview mode for a question that was partly dis
 Rule: In source-backed grill-me sessions, inspect current tests before asking about test coverage. Only ask the user about product-level acceptance or risk appetite after separating existing coverage from new behavior gaps.
 
 Relevant context: `internal/pipeline/steps/review_test.go`, `internal/tui/findings_test.go`, `internal/tui/action_bar_test.go`, `internal/cli/axi_drive_test.go`.
+
+## 2026-06-17 - Fresh proof and daemon-owned audit beat cached boundary state
+
+What happened: I initially let executor auto-fix skip boundary verification when `BoundaryVerifiedAt` was nil, and let AXI/TUI render withheld automation locally without making the daemon persist the withheld decision.
+
+Why it went wrong: I treated cached boundary fields and client-side presentation as equivalent to authoritative gate decisions. That missed migrated or partially-initialized runs and made run history diverge from what the user saw.
+
+Rule: For unattended source-changing actions, recompute boundary proof at the concrete write/fix boundary and fail closed on unknown or unsafe results. For unattended gate automation, send intent to the daemon so allowed/withheld decisions are recorded in run events before reporting status.
+
+Relevant context: `internal/pipeline/executor.go`, `internal/pipeline/steps/ci_fix.go`, `internal/daemon/manager.go`, `internal/cli/axi_drive.go`, `internal/tui/commands.go`.
+
+## 2026-06-17 - Do not use blocked steering to reconcile completed ultragoals
+
+What happened: I used `omx ultragoal steer --kind mark_blocked_superseded` to clear a stale `review_blocked` story after the replacement blocker-resolution story had completed. That command wrote `steeringStatus: "blocked"` onto G001, so the goals were both complete but the artifact still reported a steering blocker.
+
+Why it went wrong: I treated the steering command name as a generic "blocked story is superseded" repair. In this CLI implementation, that mutation marks the target as a steering blocker, which is wrong for a story that has already been checkpointed complete.
+
+Rule: When reconciling an already completed ultragoal, prefer a normal completion checkpoint plus `annotate_ledger` audit evidence. Do not use `mark_blocked_superseded` unless the goal should remain schedule-skipped and completion-blocking semantics have been checked with `omx ultragoal status --json`.
+
+Relevant context: `.omx/ultragoal/goals.json`, `.omx/ultragoal/ledger.jsonl`, `.codex/skills/ultragoal/SKILL.md`.

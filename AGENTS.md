@@ -380,5 +380,6 @@ Execute `omx setup` to install all components. Execute `omx doctor` to verify in
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
+shell commands, and other important information, read the current plan:
+`specs/002-no-worktree-yolo/plan.md`
 <!-- SPECKIT END -->

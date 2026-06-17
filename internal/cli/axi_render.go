@@ -59,6 +59,7 @@ type fixRow struct {
 // stepView is a render-ready view of a single pipeline step, decoupled from
 // whether it came from the daemon (ipc) or the local database.
 type stepView struct {
+	ID           string
 	Name         string
 	Status       string
 	DurationMS   int64
@@ -68,26 +69,30 @@ type stepView struct {
 
 // runView is a render-ready view of a pipeline run.
 type runView struct {
-	ID      string
-	Branch  string
-	Status  string
-	HeadSHA string
-	PRURL   string
-	Steps   []stepView
+	ID             string
+	Branch         string
+	Status         string
+	HeadSHA        string
+	PRURL          string
+	Boundary       types.ExecutionBoundary
+	GateAutomation *types.GateAutomation
+	Steps          []stepView
 }
 
 func runViewFromIPC(r *ipc.RunInfo) runView {
 	rv := runView{
-		ID:      r.ID,
-		Branch:  r.Branch,
-		Status:  string(r.Status),
-		HeadSHA: r.HeadSHA,
+		ID:             r.ID,
+		Branch:         r.Branch,
+		Status:         string(r.Status),
+		HeadSHA:        r.HeadSHA,
+		Boundary:       r.Boundary,
+		GateAutomation: r.GateAutomation,
 	}
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
 	for _, s := range r.Steps {
-		sv := stepView{Name: string(s.StepName), Status: string(s.Status), FixSummaries: s.FixSummaries}
+		sv := stepView{ID: s.ID, Name: string(s.StepName), Status: string(s.Status), FixSummaries: s.FixSummaries}
 		if s.DurationMS != nil {
 			sv.DurationMS = *s.DurationMS
 		}
@@ -101,16 +106,17 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 
 func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 	rv := runView{
-		ID:      r.ID,
-		Branch:  r.Branch,
-		Status:  string(r.Status),
-		HeadSHA: r.HeadSHA,
+		ID:       r.ID,
+		Branch:   r.Branch,
+		Status:   string(r.Status),
+		HeadSHA:  r.HeadSHA,
+		Boundary: r.Boundary(),
 	}
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
 	for _, s := range steps {
-		sv := stepView{Name: string(s.StepName), Status: string(s.Status)}
+		sv := stepView{ID: s.ID, Name: string(s.StepName), Status: string(s.Status)}
 		if s.DurationMS != nil {
 			sv.DurationMS = *s.DurationMS
 		}
@@ -231,6 +237,9 @@ func runObjectField(rv runView) toon.Field {
 	if rv.PRURL != "" {
 		fields = append(fields, toon.Field{Key: "pr", Value: rv.PRURL})
 	}
+	if rv.Boundary.Status != "" {
+		fields = append(fields, toon.Field{Key: "boundary", Value: boundaryObject(rv.Boundary)})
+	}
 	fields = append(fields, toon.Field{Key: "findings", Value: rv.findingsTally()})
 
 	rows := make([]stepRow, 0, len(rv.Steps))
@@ -239,6 +248,51 @@ func runObjectField(rv runView) toon.Field {
 	}
 	fields = append(fields, toon.Field{Key: "steps", Value: rows})
 	return toon.Field{Key: "run", Value: toon.NewObject(fields...)}
+}
+
+func boundaryObject(boundary types.ExecutionBoundary) toon.Object {
+	boundary = boundary.Normalize()
+	fields := []toon.Field{
+		{Key: "status", Value: string(boundary.Status)},
+		{Key: "reason", Value: string(boundary.Reason)},
+	}
+	if boundary.Detail != "" {
+		fields = append(fields, toon.Field{Key: "detail", Value: boundary.Detail})
+	}
+	if boundary.ActualWorktreePath != "" {
+		fields = append(fields, toon.Field{Key: "worktree_path", Value: boundary.ActualWorktreePath})
+	}
+	if boundary.GitCommonDir != "" {
+		fields = append(fields, toon.Field{Key: "git_common_dir", Value: boundary.GitCommonDir})
+	}
+	if boundary.Fingerprint != "" {
+		fields = append(fields, toon.Field{Key: "fingerprint", Value: boundary.Fingerprint})
+	}
+	if boundary.VerifiedAt > 0 {
+		fields = append(fields, toon.Field{Key: "verified_at", Value: boundary.VerifiedAt})
+	}
+	return toon.NewObject(fields...)
+}
+
+func automationFields(automation *types.GateAutomation) []toon.Field {
+	if automation == nil {
+		return nil
+	}
+	fields := []toon.Field{
+		{Key: "requested_mode", Value: string(automation.RequestedMode)},
+		{Key: "status", Value: string(automation.Status)},
+		{Key: "reason", Value: automation.Reason},
+	}
+	if automation.GateID != "" {
+		fields = append(fields, toon.Field{Key: "gate", Value: automation.GateID})
+	}
+	if automation.Message != "" {
+		fields = append(fields, toon.Field{Key: "message", Value: automation.Message})
+	}
+	if len(automation.RecoveryOptions) > 0 {
+		fields = append(fields, toon.Field{Key: "help", Value: automation.RecoveryOptions})
+	}
+	return []toon.Field{{Key: "automation", Value: toon.NewObject(fields...)}}
 }
 
 // gateFields renders the active approval gate: the awaiting step, its findings

@@ -9,23 +9,33 @@ import (
 
 // Run represents a pipeline run.
 type Run struct {
-	ID              string
-	RepoID          string
-	Branch          string
-	HeadSHA         string
-	BaseSHA         string
-	Status          types.RunStatus
-	PRURL           *string
-	Error           *string
-	Intent          *string
-	IntentSource    *string
-	IntentSessionID *string
-	IntentScore     *float64
-	CreatedAt       int64
-	UpdatedAt       int64
+	ID                           string
+	RepoID                       string
+	Branch                       string
+	HeadSHA                      string
+	BaseSHA                      string
+	Status                       types.RunStatus
+	PRURL                        *string
+	Error                        *string
+	BoundaryStatus               types.BoundaryStatus
+	BoundaryReason               types.BoundaryReason
+	BoundaryDetail               string
+	BoundaryExpectedWorktreePath string
+	BoundaryActualWorktreePath   string
+	BoundaryGitCommonDir         string
+	BoundaryGateRepoPath         string
+	BoundaryFingerprint          string
+	BoundaryVerifiedAt           *int64
+	BoundaryVerifierVersion      string
+	Intent                       *string
+	IntentSource                 *string
+	IntentSessionID              *string
+	IntentScore                  *float64
+	CreatedAt                    int64
+	UpdatedAt                    int64
 }
 
-const runColumns = `id, repo_id, branch, head_sha, base_sha, status, pr_url, error, intent, intent_source, intent_session_id, intent_score, created_at, updated_at`
+const runColumns = `id, repo_id, branch, head_sha, base_sha, status, pr_url, error, boundary_status, boundary_reason, boundary_detail, boundary_expected_worktree_path, boundary_actual_worktree_path, boundary_git_common_dir, boundary_gate_repo_path, boundary_fingerprint, boundary_verified_at, boundary_verifier_version, intent, intent_source, intent_session_id, intent_score, created_at, updated_at`
 
 func scanRun(row interface {
 	Scan(...any) error
@@ -33,6 +43,9 @@ func scanRun(row interface {
 	return row.Scan(
 		&r.ID, &r.RepoID, &r.Branch, &r.HeadSHA, &r.BaseSHA, &r.Status,
 		&r.PRURL, &r.Error,
+		&r.BoundaryStatus, &r.BoundaryReason, &r.BoundaryDetail,
+		&r.BoundaryExpectedWorktreePath, &r.BoundaryActualWorktreePath, &r.BoundaryGitCommonDir, &r.BoundaryGateRepoPath, &r.BoundaryFingerprint,
+		&r.BoundaryVerifiedAt, &r.BoundaryVerifierVersion,
 		&r.Intent, &r.IntentSource, &r.IntentSessionID, &r.IntentScore,
 		&r.CreatedAt, &r.UpdatedAt,
 	)
@@ -42,14 +55,17 @@ func scanRun(row interface {
 func (d *DB) InsertRun(repoID, branch, headSHA, baseSHA string) (*Run, error) {
 	ts := now()
 	r := &Run{
-		ID:        newID(),
-		RepoID:    repoID,
-		Branch:    branch,
-		HeadSHA:   headSHA,
-		BaseSHA:   baseSHA,
-		Status:    types.RunPending,
-		CreatedAt: ts,
-		UpdatedAt: ts,
+		ID:                      newID(),
+		RepoID:                  repoID,
+		Branch:                  branch,
+		HeadSHA:                 headSHA,
+		BaseSHA:                 baseSHA,
+		Status:                  types.RunPending,
+		BoundaryStatus:          types.BoundaryUnknown,
+		BoundaryReason:          types.BoundaryReasonUnknown,
+		BoundaryVerifierVersion: "yolo-boundary-v1",
+		CreatedAt:               ts,
+		UpdatedAt:               ts,
 	}
 	_, err := d.sql.Exec(
 		`INSERT INTO runs (id, repo_id, branch, head_sha, base_sha, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -59,6 +75,32 @@ func (d *DB) InsertRun(repoID, branch, headSHA, baseSHA string) (*Run, error) {
 		return nil, fmt.Errorf("insert run: %w", err)
 	}
 	return r, nil
+}
+
+// Boundary returns the run's normalized persisted execution boundary.
+func (r *Run) Boundary() types.ExecutionBoundary {
+	if r == nil {
+		return types.ExecutionBoundary{Status: types.BoundaryUnknown, Reason: types.BoundaryReasonUnknown}.Normalize()
+	}
+	return types.ExecutionBoundary{
+		Status:               r.BoundaryStatus,
+		Reason:               r.BoundaryReason,
+		Detail:               r.BoundaryDetail,
+		ExpectedWorktreePath: r.BoundaryExpectedWorktreePath,
+		ActualWorktreePath:   r.BoundaryActualWorktreePath,
+		GitCommonDir:         r.BoundaryGitCommonDir,
+		GateRepoPath:         r.BoundaryGateRepoPath,
+		Fingerprint:          r.BoundaryFingerprint,
+		VerifierVersion:      r.BoundaryVerifierVersion,
+		VerifiedAt:           int64Value(r.BoundaryVerifiedAt),
+	}.Normalize()
+}
+
+func int64Value(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // GetRun returns a run by ID.
@@ -163,6 +205,26 @@ func (d *DB) UpdateRunHeadSHA(id, headSHA string) error {
 	_, err := d.sql.Exec(`UPDATE runs SET head_sha = ?, updated_at = ? WHERE id = ?`, headSHA, now(), id)
 	if err != nil {
 		return fmt.Errorf("update run head sha: %w", err)
+	}
+	return nil
+}
+
+// UpdateRunBoundary persists the latest controller-owned boundary
+// classification for diagnostics and display.
+func (d *DB) UpdateRunBoundary(id string, boundary types.ExecutionBoundary) error {
+	boundary = boundary.Normalize()
+	var verifiedAt any
+	if boundary.VerifiedAt > 0 {
+		verifiedAt = boundary.VerifiedAt
+	}
+	_, err := d.sql.Exec(
+		`UPDATE runs SET boundary_status = ?, boundary_reason = ?, boundary_detail = ?, boundary_expected_worktree_path = ?, boundary_actual_worktree_path = ?, boundary_git_common_dir = ?, boundary_gate_repo_path = ?, boundary_fingerprint = ?, boundary_verified_at = ?, boundary_verifier_version = ?, updated_at = ? WHERE id = ?`,
+		boundary.Status, boundary.Reason, boundary.Detail,
+		boundary.ExpectedWorktreePath, boundary.ActualWorktreePath, boundary.GitCommonDir, boundary.GateRepoPath, boundary.Fingerprint,
+		verifiedAt, boundary.VerifierVersion, now(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update run boundary: %w", err)
 	}
 	return nil
 }

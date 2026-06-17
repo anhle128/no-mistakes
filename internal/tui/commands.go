@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kunchenguid/no-mistakes/internal/boundary"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -89,16 +90,34 @@ func (m Model) maybeAutoApproveCmd() tea.Cmd {
 	if step == nil || m.yoloApproved[step.StepName] {
 		return nil
 	}
+	gateID, fingerprint := m.gateIdentity(step)
+	meta := types.DecisionMetadata{
+		DecisionSource:  types.DecisionSourceUnattended,
+		ActorType:       types.ActorSystem,
+		ApprovalSurface: types.ApprovalSurfaceTUI,
+		ConsentMode:     types.ConsentModeYolo,
+		GateID:          gateID,
+		GateFingerprint: fingerprint,
+	}
 	if step.Status != types.StepStatusFixReview && !m.yoloFixed[step.StepName] && m.stepHasActionableFindings(step.StepName) {
 		m.yoloFixed[step.StepName] = true
 		m.resetFindingSelection(step.StepName)
-		return m.respondCmd(types.ActionFix)
+		return m.respondCmdWithMetadata(types.ActionFix, meta)
 	}
 	m.yoloApproved[step.StepName] = true
-	return m.respondCmd(types.ActionApprove)
+	return m.respondCmdWithMetadata(types.ActionApprove, meta)
 }
 
 func (m Model) respondCmd(action types.ApprovalAction) tea.Cmd {
+	return m.respondCmdWithMetadata(action, types.DecisionMetadata{
+		DecisionSource:  types.DecisionSourceManual,
+		ActorType:       types.ActorHuman,
+		ApprovalSurface: types.ApprovalSurfaceTUI,
+		ConsentMode:     types.ConsentModeManual,
+	})
+}
+
+func (m Model) respondCmdWithMetadata(action types.ApprovalAction, meta types.DecisionMetadata) tea.Cmd {
 	step := awaitingStep(m.steps)
 	if step == nil {
 		return nil
@@ -111,10 +130,17 @@ func (m Model) respondCmd(action types.ApprovalAction) tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
+		meta = types.NormalizeRespondDecisionMetadata(meta)
 		params := &ipc.RespondParams{
-			RunID:  m.runID,
-			Step:   step.StepName,
-			Action: action,
+			RunID:           m.runID,
+			Step:            step.StepName,
+			Action:          action,
+			DecisionSource:  meta.DecisionSource,
+			ActorType:       meta.ActorType,
+			ApprovalSurface: meta.ApprovalSurface,
+			ConsentMode:     meta.ConsentMode,
+			GateID:          meta.GateID,
+			GateFingerprint: meta.GateFingerprint,
 		}
 		if action == types.ActionFix {
 			ids := m.selectedFindingIDs(step.StepName)
@@ -139,10 +165,38 @@ func (m Model) respondCmd(action types.ApprovalAction) tea.Cmd {
 		var result ipc.RespondResult
 		err := m.client.Call(ipc.MethodRespond, params, &result)
 		if err != nil {
+			if meta.DecisionSource == types.DecisionSourceUnattended {
+				var runResult ipc.GetRunResult
+				if getErr := m.client.Call(ipc.MethodGetRun, &ipc.GetRunParams{RunID: m.runID}, &runResult); getErr == nil &&
+					runHasWithheldAutomation(runResult.Run, meta.GateID, meta.GateFingerprint) {
+					return automationWithheldMsg{run: runResult.Run, step: step.StepName}
+				}
+			}
 			return errMsg{err}
 		}
 		return nil
 	}
+}
+
+func runHasWithheldAutomation(run *ipc.RunInfo, gateID, _ string) bool {
+	return run != nil &&
+		run.GateAutomation != nil &&
+		run.GateAutomation.GateID == gateID &&
+		run.GateAutomation.Status == types.GateAutomationWithheld
+}
+
+func (m Model) gateIdentity(step *ipc.StepResultInfo) (string, string) {
+	if step == nil {
+		return "", ""
+	}
+	gateID := string(step.StepName)
+	findings := ""
+	if raw, ok := m.stepFindings[step.StepName]; ok {
+		findings = raw
+	} else if step.FindingsJSON != nil {
+		findings = *step.FindingsJSON
+	}
+	return gateID, boundary.GateFingerprint(m.runID, step.StepName, step.Status, "client", findings)
 }
 
 func (m Model) cancelRunCmd() tea.Cmd {
