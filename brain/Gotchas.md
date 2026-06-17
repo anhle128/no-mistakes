@@ -1,5 +1,25 @@
 # Gotchas
 
+## 2026-06-17 - Do not advance grill-me branches before the user answers the current question
+
+What happened: In a `grill-me` session for review-resolution reports, I asked whether accepted/unfixed review findings should appear in the report, then treated the user's next message about committing after each fix as if the interview could move on to fix-commit SHA tracking.
+
+Why it went wrong: I over-integrated a useful constraint from the user's reply and skipped the unanswered branch. `grill-me` requires resolving each question one at a time before opening dependent questions.
+
+Rule: In `grill-me`, if the user's answer addresses a different branch than the current question, record it as a constraint but restate the unanswered question before moving forward.
+
+Relevant context: `/Users/dale/.agents/skills/grill-me/SKILL.md`, `internal/pipeline/steps/review.go`, `internal/pipeline/steps/common_fix.go`.
+
+## 2026-06-17 - Do not infer runtime artifact paths from the no-mistakes source repo
+
+What happened: During a `grill-me` session for review-resolution evidence files, I recommended `.no-mistakes/review-resolutions/...` because the no-mistakes source checkout itself contains `.no-mistakes/` and existing test evidence docs mention `.no-mistakes/evidence`.
+
+Why it went wrong: I mixed the no-mistakes implementation repo with arbitrary user repos where no-mistakes runs. Runtime state currently lives under `~/.no-mistakes`; a user's target repo may not have or want a `.no-mistakes/` directory unless the feature deliberately creates one.
+
+Rule: For features that write artifacts into the user's repository, reason from the target repo/worktree contract, not from this source checkout. Ask whether the feature should introduce a new in-repo folder, and make that behavior explicit.
+
+Relevant context: `internal/config/config.go`, `internal/pipeline/steps/evidence.go`, `internal/pipeline/steps/push.go`.
+
 ## 2026-06-17 - Do not re-ask decisions preserved from existing behavior
 
 What happened: In a `grill-me` session for `--no-worktree --yolo`, I asked whether the mode should reject the default branch even though `axi run` already has `preflightGuard` logic that refuses the default branch.
