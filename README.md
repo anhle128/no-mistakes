@@ -55,7 +55,7 @@ Full documentation: <https://kunchenguid.github.io/no-mistakes/>
         clean PR, opened for you
 ```
 
-Each step either passes on its own or stops with a **finding** for you to act on. Safe, mechanical fixes are applied automatically; anything that touches your intent is escalated for you to **approve**, **fix**, or **skip**. Nothing reaches your real remote until every check is green.
+Each step either passes on its own or stops with a **finding** for you to act on. Safe, mechanical fixes are applied automatically; anything that touches your intent is escalated for you to **approve**, **fix**, or **skip**. Review findings, selected decisions, and pipeline-applied fixes are also kept in a durable review-resolution report that the TUI, AXI output, and generated PR body can reference. Nothing reaches your real remote until every check is green.
 
 ## Install
 

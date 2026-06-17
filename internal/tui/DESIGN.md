@@ -53,6 +53,7 @@ Steps connected by a vertical line to convey flow:
 ```
 
 Connector `│` in bright black. The active/awaiting step visually breaks the flow. Fixed-finding counts are right-aligned meta text on the step row.
+Durable review-resolution report metadata appears below the step list as muted lines for report path, latest outcome/status, compact counts, and stale/error warning when present. Keep this as metadata, not a nested box, and do not duplicate report body content in the pipeline region.
 
 ## Action Bar
 

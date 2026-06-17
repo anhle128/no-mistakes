@@ -18,6 +18,7 @@ When set, everything else moves under this root:
 - Gate repos: `$NM_HOME/repos/<id>.git`
 - Worktrees: `$NM_HOME/worktrees/<repoID>/<runID>/`
 - Logs: `$NM_HOME/logs/`
+- Review-resolution reports: `$NM_HOME/reports/<runID>/review-resolution.md`
 - Database: `$NM_HOME/state.sqlite`
 - Socket / PID: `$NM_HOME/socket` and `$NM_HOME/daemon.pid`
 - Managed agent server PID records: `$NM_HOME/servers/`

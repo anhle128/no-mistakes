@@ -22,7 +22,7 @@ working after your shell command returns.
 flowchart LR
   push["git push no-mistakes"] --> gate["Gate repo hook"] --> daemon["Daemon"]
   daemon --> run["Run in detached worktree"]
-  daemon --> state["Persist state + logs"]
+  daemon --> state["Persist state + logs + reports"]
   run --> tui["TUI can attach or detach"]
   run --> cleanup["Cleanup when run finishes"]
 ```
@@ -69,7 +69,8 @@ When a push arrives via the post-receive hook:
 1. Creates a detached worktree at `~/.no-mistakes/worktrees/<repoID>/<runID>/`
 2. Starts the pipeline executor in that worktree
 3. Streams events to any connected TUI clients and serves request/response state to AXI clients
-4. Cleans up the worktree when the run finishes (success or failure)
+4. Writes durable review-resolution reports under `~/.no-mistakes/reports/<runID>/` when review evidence changes
+5. Cleans up the worktree when the run finishes (success or failure)
 
 Pipeline agents are prompted to keep intentional writes inside that detached worktree and avoid changing system state outside it, such as Homebrew packages, apps under `/Applications`, or global tool configuration.
 That reduces surprising machine-level side effects and macOS App Management prompts, but it is prompt steering rather than a true sandbox.
@@ -100,7 +101,7 @@ On startup, the daemon checks for runs that were left in `pending` or `running` 
 
 ## Logging
 
-Daemon logs go to `~/.no-mistakes/logs/daemon.log`. The setup wizard captures managed agent-server output in `~/.no-mistakes/logs/wizard-agent.log`. Each pipeline step also writes to its own log at `~/.no-mistakes/logs/<runID>/<step>.log`, and fatal step errors are appended there so the step log includes the failure reason even when the detail comes from command stderr.
+Daemon logs go to `~/.no-mistakes/logs/daemon.log`. The setup wizard captures managed agent-server output in `~/.no-mistakes/logs/wizard-agent.log`. Each pipeline step also writes to its own log at `~/.no-mistakes/logs/<runID>/<step>.log`, and fatal step errors are appended there so the step log includes the failure reason even when the detail comes from command stderr. Review-resolution reports are not logs; they are sanitized Markdown artifacts written to `~/.no-mistakes/reports/<runID>/review-resolution.md`.
 
 Set the log level in global config:
 

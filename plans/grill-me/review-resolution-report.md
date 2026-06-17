@@ -1,5 +1,15 @@
 # Review Resolution Report Plan
 
+> Status: superseded by `specs/002-review-resolution-report/plan.md` and the
+> implemented review-report pipeline. This file records an earlier grill-me
+> design that treated the report as committed PR evidence. The shipped design
+> writes the durable Markdown artifact to
+> `$NM_HOME/reports/<runID>/review-resolution.md`, stores compact metadata in
+> SQLite, and references that metadata from AXI, the TUI, and PR summaries. It
+> does not commit a repo-local `no-mistakes/<branch-slug>/review-resolution.md`
+> file, force-add report artifacts, or require one review finding per fix
+> commit.
+
 ## Goal
 
 After the review step finds issues, no-mistakes must produce a committed

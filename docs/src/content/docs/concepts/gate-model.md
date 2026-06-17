@@ -20,6 +20,7 @@ flowchart TD
   worktree --> pipeline["intent -> rebase -> review -> test -> document -> lint -> push -> pr -> ci"]
   pipeline --> upstream["Upstream remote"]
   daemon --> db["SQLite state"]
+  daemon --> reports["Report artifacts"]
   daemon --> ipc["IPC socket"]
   ipc --> tui["TUI clients"]
   ipc --> axi["AXI clients"]
@@ -143,7 +144,7 @@ Communication between the CLI and daemon uses JSON-RPC 2.0 over the Unix socket.
 ### Database
 
 SQLite at `~/.no-mistakes/state.sqlite` tracks repos, runs, step results, step
-rounds, run boundary state, gate automation audit events, and derived intent summaries. Step rounds record each execution attempt
+rounds, run boundary state, gate automation audit events, review-resolution report metadata, and derived intent summaries. Step rounds record each execution attempt
 (initial, auto-fix) with its own findings and duration, plus selected finding
 IDs, whether the selection came from the user or auto-fix filtering, the merged
 finding payload actually sent to the fix agent for that round, and the one-line
@@ -156,6 +157,7 @@ not stored in this database. Legacy `user_fix` rounds are still read as
 `auto-fix` for backward
 compatibility.
 Boundary and automation events record why unattended automation was allowed or withheld so AXI, the TUI, and terminal status can show the same recovery guidance after reconnects.
+Review-resolution report metadata stores the report path, status, latest outcome, stable summary counts, source round identifiers, timestamps, stale/error state, and contract version; the full Markdown body lives as a report artifact rather than in IPC events.
 
 ## Local state
 
@@ -172,6 +174,7 @@ Everything lives under `~/.no-mistakes/` by default. Set `NM_HOME` to relocate i
 | `repos/<id>.git` | Bare gate repos |
 | `repos/<id>.git/notify-push.log` | Persistent hook notification failure log |
 | `worktrees/<repoID>/<runID>/` | Disposable worktrees (cleaned up after each run) |
+| `reports/<runID>/review-resolution.md` | Durable review-resolution report for review findings, decisions, fix attempts, latest outcome, and remaining risks |
 | `logs/<runID>/<step>.log` | Per-step log files |
 | `logs/daemon.log` | Daemon log |
 | `logs/wizard-agent.log` | Managed agent-server output captured during setup wizard runs |
