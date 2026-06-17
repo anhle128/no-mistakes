@@ -47,6 +47,65 @@ func TestModel_ApplyEvent_LogChunk_Truncation(t *testing.T) {
 	}
 }
 
+func TestModel_ApplyEvent_StepCompletedClearsResolvedGateAutomation(t *testing.T) {
+	run := testRun()
+	run.Steps[0].Status = types.StepStatusAwaitingApproval
+	run.GateAutomation = testWithheldGateAutomation(types.StepReview)
+	m := NewModel("/tmp/sock", nil, run)
+
+	if notice := renderAutomationNotice(m.run, 80); notice == "" {
+		t.Fatal("expected automation notice before resolved step event")
+	}
+
+	stepName := types.StepReview
+	status := string(types.StepStatusCompleted)
+	m.applyEvent(ipc.Event{
+		Type:     ipc.EventStepCompleted,
+		RunID:    run.ID,
+		StepName: &stepName,
+		Status:   &status,
+	})
+
+	if m.run.GateAutomation != nil {
+		t.Fatalf("GateAutomation = %+v, want nil", m.run.GateAutomation)
+	}
+	if notice := renderAutomationNotice(m.run, 80); notice != "" {
+		t.Fatalf("automation notice = %q, want empty", stripANSI(notice))
+	}
+}
+
+func TestModel_ApplyEvent_RunCompletedClearsGateAutomation(t *testing.T) {
+	run := testRun()
+	run.Steps[0].Status = types.StepStatusAwaitingApproval
+	run.GateAutomation = testWithheldGateAutomation(types.StepReview)
+	m := NewModel("/tmp/sock", nil, run)
+
+	status := string(types.RunCompleted)
+	m.applyEvent(ipc.Event{
+		Type:   ipc.EventRunCompleted,
+		RunID:  run.ID,
+		Status: &status,
+	})
+
+	if m.run.GateAutomation != nil {
+		t.Fatalf("GateAutomation = %+v, want nil", m.run.GateAutomation)
+	}
+	if notice := renderAutomationNotice(m.run, 80); notice != "" {
+		t.Fatalf("automation notice = %q, want empty", stripANSI(notice))
+	}
+}
+
+func testWithheldGateAutomation(gate types.StepName) *types.GateAutomation {
+	return &types.GateAutomation{
+		GateID:          string(gate),
+		Status:          types.GateAutomationWithheld,
+		RequestedMode:   types.ConsentModeYes,
+		Reason:          string(types.BoundaryUnknown),
+		Message:         "Unattended automation was withheld because the run boundary is unknown.",
+		RecoveryOptions: []string{"Respond manually to this gate"},
+	}
+}
+
 func TestModel_HandleKey_Quit(t *testing.T) {
 	run := testRun()
 	m := NewModel("/tmp/sock", nil, run)
