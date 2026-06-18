@@ -16,8 +16,11 @@ flowchart TD
   repo["Working repo"] -->|"git push no-mistakes"| gate["Local bare gate repo"]
   gate --> hook["post-receive hook"]
   hook --> daemon["Daemon"]
+  axiStart["no-mistakes --no-worktree or axi run --no-worktree"] --> daemon
   daemon --> worktree["Disposable worktree"]
+  daemon --> current["Current git worktree"]
   worktree --> pipeline["intent -> rebase -> review -> test -> document -> lint -> push -> pr -> ci"]
+  current --> pipeline
   pipeline --> upstream["Upstream remote"]
   daemon --> db["SQLite state"]
   daemon --> ipc["IPC socket"]
@@ -62,6 +65,7 @@ That is a core design choice, not an implementation detail.
 
 - **Named remote** - `origin` is never hijacked. You push to `no-mistakes` on purpose, so regular `git push` still works normally.
 - **Disposable worktrees** - each run happens in its own detached worktree under `~/.no-mistakes/worktrees/`. The daemon can safely modify files, run tests, and commit fixes without touching your working directory.
+- **Explicit current-worktree mode** - `--no-worktree` is an opt-in exception for workflows where another tool already put you in the right branch checkout. It runs in the canonical current git worktree root, labels that boundary everywhere, rejects dirty or unsafe starts, and never deletes that checkout during cleanup.
 - **Fixed pipeline** - the step order is opinionated and not configurable: `intent → rebase → review → test → document → lint → push → pr → ci`. What you _can_ configure is the commands each step runs, how many auto-fix attempts are allowed, and whether transcript-based intent extraction is used when intent is not supplied directly.
 
 ## Why it is built this way
@@ -79,7 +83,8 @@ daemon.
 
 ### Daemon
 
-The daemon owns long-running work: creating worktrees, running the pipeline,
+The daemon owns long-running work: creating disposable worktrees or attaching to
+an explicitly requested current worktree, running the pipeline,
 streaming events, tracking state, and recovering from crashes. Without it, the
 CLI would need to stay attached to every run.
 
@@ -87,6 +92,12 @@ CLI would need to stay attached to every run.
 
 The worktree is where `no-mistakes` can safely rebase, run commands, let the
 agent edit files, and commit fixes. Your day-to-day working tree stays clean.
+
+### Current-worktree mode
+
+Passing `--no-worktree` to bare `no-mistakes` or `no-mistakes axi run` asks the daemon to start a run directly in the current git worktree root instead of creating a disposable no-mistakes-owned worktree. This mode is useful when an outer tool has already created a dedicated branch checkout.
+
+Because automated fixes and commits land in that checkout, current mode fails closed before the pipeline starts. The checkout must be clean, on a non-default branch, attached to a real HEAD, and able to prove a default-branch review base. Status, AXI, TUI, and PR output render it as `uses this checkout` with a warning. Crash recovery can mark the run failed or incomplete, but it will not remove the current work directory.
 
 ## Component overview
 
@@ -107,7 +118,7 @@ A long-running background process that manages pipeline runs. It:
 - Listens on a Unix socket at `~/.no-mistakes/socket`
 - Writes its identity record to `~/.no-mistakes/daemon.pid`
 - Serializes concurrent pushes to the same branch (new push cancels the in-progress run)
-- Creates and cleans up worktrees
+- Creates and cleans up disposable worktrees
 - Persists state to SQLite
 - Streams events to connected TUI clients via IPC
 
@@ -121,7 +132,7 @@ The `-y` / `--yes` flag continues through update safety prompts while still prin
 If the daemon executable path cannot be determined, `update` aborts before replacing anything.
 You can also manage it explicitly with `no-mistakes daemon start|stop|restart|status`.
 
-On startup, the daemon recovers from crashes by marking any stuck runs as failed, refreshing review-resolution reports for those recovered runs when Review findings exist, reaping orphaned managed agent servers, cleaning up orphaned worktrees, refreshing legacy no-mistakes-managed `post-receive` hooks, enabling push options for older gate repos, and reapplying gate hook-path isolation when Git supports `config --worktree`.
+On startup, the daemon recovers from crashes by marking any stuck runs as failed, refreshing review-resolution reports for those recovered runs when Review findings exist, reaping orphaned managed agent servers, cleaning up orphaned disposable worktrees, refreshing legacy no-mistakes-managed `post-receive` hooks, enabling push options for older gate repos, and reapplying gate hook-path isolation when Git supports `config --worktree`. Current-worktree run directories are never removed by recovery.
 
 ### Pipeline executor
 
@@ -171,6 +182,7 @@ Everything lives under `~/.no-mistakes/` by default. Set `NM_HOME` to relocate i
 | `repos/<id>.git/notify-push.log` | Persistent hook notification failure log |
 | `worktrees/<repoID>/<runID>/` | Disposable worktrees (cleaned up after each run) |
 | `reports/<runID>/review-resolution.md` | Local Review resolution report when Review findings exist |
+| current git worktree | Opt-in `--no-worktree` execution directory, recorded in run metadata and never cleaned up by no-mistakes |
 | `logs/<runID>/<step>.log` | Per-step log files |
 | `logs/daemon.log` | Daemon log |
 | `logs/wizard-agent.log` | Managed agent-server output captured during setup wizard runs |

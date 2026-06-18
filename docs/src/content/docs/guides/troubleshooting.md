@@ -128,6 +128,20 @@ Symptom: a run stops with a failed step.
 Check the per-step log at `~/.no-mistakes/logs/<runID>/<step>.log`.
 Fatal step errors are appended to that log, so failures such as rejected pushes include the returned error output there instead of only appearing in `daemon.log`.
 
+## Current-worktree run is rejected
+
+Symptom: `no-mistakes --no-worktree` or `no-mistakes axi run --intent "..." --no-worktree` exits before the pipeline starts.
+
+Current-worktree mode is stricter because no-mistakes would be writing commits into the checkout you are standing in. Check the structured error reason and fix the matching preflight issue:
+
+- `rejected_dirty_worktree` - commit or discard tracked changes and remove untracked non-ignored files. Ignored-only files are allowed.
+- `rejected_default_branch` - create or switch to a feature branch.
+- `rejected_detached_head` or `rejected_unborn_head` - check out a real branch with at least one commit.
+- `rejected_no_trustworthy_base` - fetch the default branch or repair the upstream/default-branch configuration so no-mistakes can prove the branch review base.
+- `rejected_active_run_conflict` - inspect the active run, resume it if it is compatible, or abort it before starting a different current-worktree run.
+
+When a current-worktree run fails or the daemon recovers from a crash, no-mistakes marks the run failed or incomplete but does not remove the checkout.
+
 ## `git push no-mistakes` doesn't start a pipeline
 
 Symptom: push succeeds but `no-mistakes` shows no active run.
@@ -198,7 +212,7 @@ You can approve (accept the risk), fix (run another auto-fix cycle), skip, or ab
 
 Symptom: `~/.no-mistakes/worktrees/<repoID>/<runID>/` sticks around after a run ends.
 
-The daemon removes worktrees at run completion, and also on daemon startup (crash recovery). If one is still there:
+The daemon removes disposable worktrees at run completion, and also on daemon startup (crash recovery). It never removes a checkout used through `--no-worktree`. If a disposable worktree is still there:
 
 ```sh
 # From inside the repo the worktree belongs to:

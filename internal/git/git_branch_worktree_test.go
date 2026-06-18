@@ -101,6 +101,104 @@ func TestFindMainRepoRootNotFound(t *testing.T) {
 	}
 }
 
+func TestCurrentWorktreeRootResolvesSubdirectory(t *testing.T) {
+	ctx := context.Background()
+	repo := initTestRepo(t)
+	subdir := filepath.Join(repo, "nested", "dir")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := CurrentWorktreeRoot(ctx, subdir)
+	if err != nil {
+		t.Fatalf("CurrentWorktreeRoot: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		want = repo
+	}
+	if got != want {
+		t.Fatalf("root = %q, want %q", got, want)
+	}
+}
+
+func TestHasCommittedWorktreeDirtAllowsIgnoredOnlyFiles(t *testing.T) {
+	ctx := context.Background()
+	repo := initTestRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "exclude"), []byte("tmp/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "tmp", "cache"), []byte("ignored"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dirty, err := HasCommittedWorktreeDirt(ctx, repo)
+	if err != nil {
+		t.Fatalf("HasCommittedWorktreeDirt ignored-only: %v", err)
+	}
+	if dirty {
+		t.Fatal("ignored-only files should not count as committed worktree dirt")
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("untracked"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirty, err = HasCommittedWorktreeDirt(ctx, repo)
+	if err != nil {
+		t.Fatalf("HasCommittedWorktreeDirt untracked: %v", err)
+	}
+	if !dirty {
+		t.Fatal("untracked non-ignored file should count as dirty")
+	}
+}
+
+func TestResolveCurrentReviewBaseUsesDefaultRef(t *testing.T) {
+	ctx := context.Background()
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	if err := InitBare(ctx, origin); err != nil {
+		t.Fatal(err)
+	}
+	repo := initTestRepo(t)
+	run(t, repo, "git", "branch", "-M", "main")
+	run(t, repo, "git", "remote", "add", "origin", origin)
+	run(t, repo, "git", "push", "origin", "main")
+	run(t, repo, "git", "checkout", "-b", "feature/current")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	run(t, repo, "git", "add", ".")
+	run(t, repo, "git", "commit", "-m", "feature")
+
+	evidence, err := ResolveCurrentReviewBase(ctx, repo, "origin", "main")
+	if err != nil {
+		t.Fatalf("ResolveCurrentReviewBase: %v", err)
+	}
+	if evidence.BaseSHA == "" {
+		t.Fatal("expected base SHA")
+	}
+	if evidence.Ref != "origin/main" && evidence.Ref != "main" {
+		t.Fatalf("review base ref = %q, want origin/main or main", evidence.Ref)
+	}
+}
+
+func TestResolveCurrentReviewBaseReportsMissingBase(t *testing.T) {
+	ctx := context.Background()
+	repo := initTestRepo(t)
+	run(t, repo, "git", "checkout", "-b", "feature/current")
+
+	evidence, err := ResolveCurrentReviewBase(ctx, repo, "missing-remote", "main")
+	if err == nil {
+		t.Fatal("expected missing base error")
+	}
+	if !evidence.RefreshAttempted {
+		t.Fatal("expected one refresh attempt before rejecting")
+	}
+	if !strings.Contains(evidence.RefreshError, "missing-remote") {
+		t.Fatalf("refresh error = %q, want missing-remote", evidence.RefreshError)
+	}
+}
+
 func TestPush(t *testing.T) {
 	ctx := context.Background()
 	src := initTestRepo(t)

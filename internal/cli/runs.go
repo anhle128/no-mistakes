@@ -71,9 +71,14 @@ func printRunLine(w io.Writer, r *db.Run) {
 	if len(sha) > 8 {
 		sha = sha[:8]
 	}
+	mode := r.WorktreeMode.Label()
+	label := mode
+	if r.WorkDirLabel != nil && *r.WorkDirLabel != "" {
+		label = *r.WorkDirLabel
+	}
 	pr := ""
 	if r.PRURL != nil {
 		pr = fmt.Sprintf("  %s", *r.PRURL)
 	}
-	fmt.Fprintf(w, "  %-12s %-20s %s  %s%s\n", runStatusStyle(r.Status), r.Branch, sDim.Render(sha), sDim.Render(ts), pr)
+	fmt.Fprintf(w, "  %-12s %-20s %s  %-30s %s%s\n", runStatusStyle(r.Status), r.Branch, sDim.Render(sha), sDim.Render(label), sDim.Render(ts), pr)
 }

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -81,6 +82,35 @@ func TestNonInteractiveEnv_SetsPWDToDir(t *testing.T) {
 
 	if got["PWD"] != "/work/dir" {
 		t.Errorf("PWD = %q, want \"/work/dir\"", got["PWD"])
+	}
+}
+
+func TestNonInteractiveEnv_RelativeDirSetsAbsolutePWD(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skipf("PWD is ambient on %s", runtime.GOOS)
+	}
+	dir := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+	want, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := resolveEnv(NonInteractiveEnv("."))
+
+	if got["PWD"] != want {
+		t.Errorf("PWD = %q, want absolute working dir %q", got["PWD"], want)
 	}
 }
 

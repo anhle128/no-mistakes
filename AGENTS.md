@@ -376,3 +376,10 @@ Do not manually duplicate hook-owned activation state unless recovering from mis
 ## Setup
 
 Execute `omx setup` to install all components. Execute `omx doctor` to verify installation.
+
+<!-- SPECKIT START -->
+## Active Spec Kit Plan
+
+- Current feature plan: `specs/003-no-worktree-yolo/plan.md`
+- Origin reference: `specs/003-no-worktree-yolo/no-worktree-yolo.md`
+<!-- SPECKIT END -->

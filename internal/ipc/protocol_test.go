@@ -144,6 +144,54 @@ func TestPushReceivedParams(t *testing.T) {
 	}
 }
 
+func TestStartRunParamsRoundTrip(t *testing.T) {
+	params := StartRunParams{
+		RepoID:                     "repo456",
+		Branch:                     "feature",
+		HeadSHA:                    "head",
+		BaseSHA:                    "base",
+		WorktreeMode:               types.WorktreeModeCurrent,
+		WorkDir:                    "/work/repo",
+		WorkDirLabel:               "repo",
+		CurrentWorktreeWarning:     "uses this checkout",
+		ReviewBaseRef:              "origin/main",
+		ReviewBaseRefreshAttempted: true,
+		ReviewBaseRefreshError:     "temporary fetch failure",
+		SkipSteps:                  []types.StepName{types.StepReview},
+		Intent:                     "ship current mode",
+		RequireIntent:              true,
+	}
+	data, _ := json.Marshal(params)
+	var got StartRunParams
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RepoID != params.RepoID || got.WorktreeMode != types.WorktreeModeCurrent || got.WorkDir != params.WorkDir {
+		t.Fatalf("round-trip mismatch: got %+v, want %+v", got, params)
+	}
+	if !got.ReviewBaseRefreshAttempted || got.ReviewBaseRef != "origin/main" {
+		t.Fatalf("review base fields not preserved: %+v", got)
+	}
+	if !reflect.DeepEqual(got.SkipSteps, params.SkipSteps) {
+		t.Fatalf("skip steps = %+v, want %+v", got.SkipSteps, params.SkipSteps)
+	}
+	if !got.RequireIntent {
+		t.Fatal("require_intent not preserved")
+	}
+}
+
+func TestStartRunResultRoundTrip(t *testing.T) {
+	result := StartRunResult{RunID: "run-1", Resumed: true}
+	data, _ := json.Marshal(result)
+	var got StartRunResult
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RunID != result.RunID || !got.Resumed {
+		t.Fatalf("result = %+v, want %+v", got, result)
+	}
+}
+
 func TestGetRunParams(t *testing.T) {
 	params := GetRunParams{RunID: "01ABCDEF"}
 	data, _ := json.Marshal(params)
@@ -239,15 +287,23 @@ func TestRespondParams(t *testing.T) {
 func TestRunInfoRoundTrip(t *testing.T) {
 	prURL := "https://github.com/user/repo/pull/42"
 	info := RunInfo{
-		ID:        "run001",
-		RepoID:    "repo001",
-		Branch:    "feature",
-		HeadSHA:   "abc123",
-		BaseSHA:   "def456",
-		Status:    types.RunRunning,
-		PRURL:     &prURL,
-		CreatedAt: 1700000000,
-		UpdatedAt: 1700000001,
+		ID:                         "run001",
+		RepoID:                     "repo001",
+		Branch:                     "feature",
+		HeadSHA:                    "abc123",
+		BaseSHA:                    "def456",
+		Status:                     types.RunRunning,
+		PRURL:                      &prURL,
+		WorktreeMode:               types.WorktreeModeCurrent,
+		WorkDir:                    "/work/repo",
+		WorkDirLabel:               "repo",
+		CurrentWorktreeWarning:     "uses this checkout",
+		MetadataAvailability:       types.MetadataAvailable,
+		EvidenceState:              types.EvidenceComplete,
+		ReviewBaseRef:              "origin/main",
+		ReviewBaseRefreshAttempted: true,
+		CreatedAt:                  1700000000,
+		UpdatedAt:                  1700000001,
 	}
 	data, _ := json.Marshal(info)
 	var got RunInfo
@@ -259,6 +315,9 @@ func TestRunInfoRoundTrip(t *testing.T) {
 	}
 	if got.PRURL == nil || *got.PRURL != prURL {
 		t.Errorf("pr_url = %v, want %q", got.PRURL, prURL)
+	}
+	if got.WorktreeMode != types.WorktreeModeCurrent || got.WorkDirLabel != "repo" {
+		t.Errorf("worktree metadata mismatch: %+v", got)
 	}
 }
 
@@ -392,6 +451,7 @@ func TestNullableFieldsOmitted(t *testing.T) {
 func TestMethodConstants(t *testing.T) {
 	methods := []string{
 		MethodPushReceived,
+		MethodStartRun,
 		MethodGetRun,
 		MethodGetRuns,
 		MethodGetActiveRun,
@@ -412,8 +472,8 @@ func TestMethodConstants(t *testing.T) {
 		}
 		seen[m] = true
 	}
-	if len(methods) != 10 {
-		t.Errorf("expected 10 methods, got %d", len(methods))
+	if len(methods) != 11 {
+		t.Errorf("expected 11 methods, got %d", len(methods))
 	}
 }
 

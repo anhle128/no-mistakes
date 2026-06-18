@@ -63,7 +63,7 @@ func TestAxiRunPageviewCarriesFlags(t *testing.T) {
 	restore := telemetry.SetDefaultForTesting(recorder)
 	defer restore()
 
-	_, _ = executeCmd("axi", "run", "--intent", "ship it", "--yes", "--skip", "lint")
+	_, _ = executeCmd("axi", "run", "--intent", "ship it", "--yolo", "--no-worktree", "--skip", "lint")
 
 	event := recorder.find("pageview", "path", "/axi/run")
 	if event == nil {
@@ -71,6 +71,12 @@ func TestAxiRunPageviewCarriesFlags(t *testing.T) {
 	}
 	if got := event.fields["auto_yes"]; got != true {
 		t.Fatalf("auto_yes = %v, want true", got)
+	}
+	if got := event.fields["yolo"]; got != true {
+		t.Fatalf("yolo = %v, want true", got)
+	}
+	if got := event.fields["no_worktree"]; got != true {
+		t.Fatalf("no_worktree = %v, want true", got)
 	}
 	if got := event.fields["has_intent"]; got != true {
 		t.Fatalf("has_intent = %v, want true", got)
