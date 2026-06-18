@@ -6,6 +6,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/agent"
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -18,6 +19,7 @@ type StepContext struct {
 	Agent            agent.Agent
 	Config           *config.Config
 	DB               *db.DB
+	Paths            *paths.Paths
 	Log              func(string) // discrete log line (newline-terminated, user-visible + file)
 	LogChunk         func(string) // raw streaming chunk (user-visible + file)
 	LogFile          func(string) // file-only log callback (not shown to user)
@@ -31,6 +33,10 @@ type StepContext struct {
 	// was trying to accomplish, inferred from local agent transcripts. It's
 	// surfaced in step prompts so agents have context beyond the diff.
 	UserIntent string
+
+	LastFixCommitSHA             string
+	LastNoCommitReason           string
+	LastFixResolutionDetailsJSON string
 }
 
 // StepOutcome is the result of executing a pipeline step.
@@ -46,7 +52,10 @@ type StepOutcome struct {
 	// the fix attempt performed during this round. Steps populate it in fix
 	// mode so the executor can persist it on the round record and later
 	// rounds can reference what was previously attempted.
-	FixSummary string
+	FixSummary               string
+	FixCommitSHA             string
+	NoCommitReason           string
+	FixResolutionDetailsJSON string
 
 	// DurationOverrideMS, when positive, replaces the wall-clock duration
 	// reported for this step. Used by demo mode to show realistic durations

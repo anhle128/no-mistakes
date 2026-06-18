@@ -141,11 +141,12 @@ Communication between the CLI and daemon uses JSON-RPC 2.0 over the Unix socket.
 ### Database
 
 SQLite at `~/.no-mistakes/state.sqlite` tracks repos, runs, step results, step
-rounds, and derived intent summaries. Step rounds record each execution attempt
+rounds, Review resolution metadata/decisions, and derived intent summaries. Step rounds record each execution attempt
 (initial, auto-fix) with its own findings and duration, plus selected finding
 IDs, whether the selection came from the user or auto-fix filtering, the merged
-finding payload actually sent to the fix agent for that round, and the one-line
-fix summary for fix rounds. That merged payload can include per-finding user
+finding payload actually sent to the fix agent for that round, the one-line
+fix summary for fix rounds, and fix evidence such as commit SHA, no-commit reason,
+and structured Review resolution details when available. That merged payload can include per-finding user
 notes and user-authored findings from the TUI or AXI interface. Intent stores
 the summary, source, session ID, and match score on each run when transcript
 matching is used, plus cached summaries for matching transcript sessions. An
@@ -169,6 +170,7 @@ Everything lives under `~/.no-mistakes/` by default. Set `NM_HOME` to relocate i
 | `repos/<id>.git` | Bare gate repos |
 | `repos/<id>.git/notify-push.log` | Persistent hook notification failure log |
 | `worktrees/<repoID>/<runID>/` | Disposable worktrees (cleaned up after each run) |
+| `reports/<runID>/review-resolution.md` | Local Review resolution report when Review findings exist |
 | `logs/<runID>/<step>.log` | Per-step log files |
 | `logs/daemon.log` | Daemon log |
 | `logs/wizard-agent.log` | Managed agent-server output captured during setup wizard runs |

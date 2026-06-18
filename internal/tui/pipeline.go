@@ -142,7 +142,12 @@ func renderPipelineView(run *ipc.RunInfo, steps []ipc.StepResultInfo, width int,
 		spacing = 1
 	}
 	b.WriteString(branchRendered + strings.Repeat(" ", spacing) + status)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if reportLine := renderReviewResolutionLine(run.ReviewResolution, contentWidth); reportLine != "" {
+		b.WriteString(reportLine)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// Step list with connectors.
 	for i, step := range steps {
@@ -194,6 +199,29 @@ func renderPipelineView(run *ipc.RunInfo, steps []ipc.StepResultInfo, width int,
 		b.WriteString("\n" + errStyle.Render(errText) + "\n")
 	}
 	return renderBox("Pipeline", b.String(), boxWidth)
+}
+
+func renderReviewResolutionLine(info *ipc.ReviewResolutionReportInfo, width int) string {
+	if info == nil || !info.Exists {
+		return ""
+	}
+	status := info.Status
+	if status == "" {
+		status = "evidence_unavailable"
+	}
+	text := fmt.Sprintf("Review resolution: %s; %d resolved, %d accepted, %d info, %d open",
+		status, info.ResolvedCount, info.AcceptedCount, info.InformationalCount, info.StillOpenCount)
+	if info.Path != "" {
+		text += " - " + info.Path
+	}
+	if width > 0 && lipgloss.Width(text) > width {
+		text, _ = cutText(text, width)
+	}
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiBrightBlack))
+	if info.StillOpenCount > 0 || status == "incomplete" || status == "stale" || status == "degraded" || status == "evidence_unavailable" {
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(ansiYellow))
+	}
+	return style.Render(text)
 }
 
 func appendRightLabel(line, label string, width int) string {

@@ -221,9 +221,27 @@ func triggerRun(ctx context.Context, env *axiEnv, branch, headSHA string, skipSt
 	// head so `axi run` is still useful when there are no new commits.
 	var rr ipc.RerunResult
 	if err := env.client.Call(ipc.MethodRerun, rerunParams(env.repo.ID, branch, skipSteps, intent), &rr); err != nil {
-		return "", fmt.Errorf("no run started for %q: %v", branch, err)
+		return "", fmt.Errorf("no run started for %q: %v%s", branch, err, notifyPushFailureHint(env.p, env.repo.ID))
 	}
 	return rr.RunID, nil
+}
+
+func notifyPushFailureHint(p *paths.Paths, repoID string) string {
+	if p == nil || repoID == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(p.RepoDir(repoID), "notify-push.log"))
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return "\nlatest notify-push failure:\n" + tailString(string(data), 4000)
+}
+
+func tailString(s string, limit int) string {
+	if limit <= 0 || len(s) <= limit {
+		return s
+	}
+	return s[len(s)-limit:]
 }
 
 func waitForActiveRunForHead(ctx context.Context, client *ipc.Client, repoID, branch, headSHA string, timeout time.Duration) (*ipc.RunInfo, error) {

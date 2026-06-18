@@ -45,6 +45,7 @@ Shows the branch name and run status in the header, followed by each step:
 
 ```
   feature/login-fix  running
+  Review resolution: final; 1 resolved, 1 accepted, 0 info, 0 open - ~/.no-mistakes/reports/<runID>/review-resolution.md
   ────────────────────────────
   – Intent
   │
@@ -79,6 +80,7 @@ Step status icons:
 Completed steps show their duration.
 Steps with fixed findings, and steps currently fixing reported findings, show a right-aligned count such as `2/3 fixed` or `0/3 fixed`.
 The first number counts completed fixes, not findings selected for an in-progress fix.
+When a Review resolution report exists, the pipeline header shows compact status/counts and the local report path. Non-final or still-open reports use warning-colored wording.
 Connectors (`│`) between steps are hidden when the terminal height is under 30 lines.
 
 ### Findings panel

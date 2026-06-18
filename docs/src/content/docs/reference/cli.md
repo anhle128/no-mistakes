@@ -112,6 +112,7 @@ The same successful-output reporting instructions apply to `axi respond` results
 ## no-mistakes axi status
 
 Show a run, preferring the current branch's active or most recent run before falling back to repo-wide active or recent runs.
+When a Review resolution report exists, the run object includes a `review_resolution` object with compact status/counts and the local report path for inspection.
 
 ```sh
 no-mistakes axi status

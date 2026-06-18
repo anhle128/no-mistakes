@@ -16,6 +16,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -171,6 +172,9 @@ func (e *Executor) Execute(ctx context.Context, run *db.Run, repo *db.Repo, work
 		return fmt.Errorf("update run status: %w", err)
 	}
 	run.Status = types.RunCompleted
+	if err := e.refreshReviewReport(run.ID); err != nil {
+		return e.failRun(run, repo, fmt.Errorf("refresh review resolution report after run completion: %w", err))
+	}
 	e.emitRunEvent(ipc.EventRunCompleted, run, repo)
 	return nil
 }
@@ -216,6 +220,7 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 		Agent:        e.agent,
 		Config:       e.config,
 		DB:           e.db,
+		Paths:        e.paths,
 		StepResultID: sr.ID,
 		UserIntent:   userIntent,
 		Log: func(text string) {
@@ -269,6 +274,11 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			if dbErr := e.db.FailStep(sr.ID, err.Error(), durationMS); dbErr != nil {
 				slog.Warn("failed to mark step as failed in db", "step", stepName, "error", dbErr)
 			}
+			if stepName == types.StepReview {
+				if refreshErr := e.refreshReviewReport(run.ID); refreshErr != nil {
+					err = fmt.Errorf("%w; refresh review resolution report: %v", err, refreshErr)
+				}
+			}
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFailed), "", "", err.Error(), &durationMS)
 			return false, fmt.Errorf("step %s failed: %w", stepName, err)
 		}
@@ -297,11 +307,34 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 			s := outcome.FixSummary
 			fixSummaryPtr = &s
 		}
-		if inserted, dbErr := e.db.InsertStepRound(sr.ID, roundNum, nextTrigger, findingsPtr, fixSummaryPtr, roundDuration); dbErr != nil {
+		var fixCommitPtr *string
+		if outcome.FixCommitSHA != "" {
+			s := outcome.FixCommitSHA
+			fixCommitPtr = &s
+		}
+		var noCommitPtr *string
+		if outcome.NoCommitReason != "" {
+			s := outcome.NoCommitReason
+			noCommitPtr = &s
+		}
+		var fixDetailsPtr *string
+		if outcome.FixResolutionDetailsJSON != "" {
+			s := outcome.FixResolutionDetailsJSON
+			fixDetailsPtr = &s
+		}
+		if inserted, dbErr := e.db.InsertStepRoundWithEvidence(sr.ID, roundNum, nextTrigger, findingsPtr, fixSummaryPtr, fixCommitPtr, noCommitPtr, fixDetailsPtr, roundDuration); dbErr != nil {
 			currentRoundID = roundInsertID(currentRoundID, inserted, dbErr)
+			if requiresReviewRoundEvidence(stepName, findingsPtr, fixSummaryPtr, fixCommitPtr, noCommitPtr, fixDetailsPtr, sctx.Fixing) {
+				return false, fmt.Errorf("persist Review round evidence: %w", dbErr)
+			}
 			slog.Warn("failed to insert step round", "step", stepName, "round", roundNum, "error", dbErr)
 		} else {
 			currentRoundID = roundInsertID(currentRoundID, inserted, nil)
+		}
+		if stepName == types.StepReview && findingsPtr != nil {
+			if err := e.refreshReviewReport(run.ID); err != nil {
+				return false, fmt.Errorf("refresh review resolution report after findings: %w", err)
+			}
 		}
 
 		// If the step produced a PR URL, propagate it to the run and emit an update.
@@ -327,6 +360,9 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 				if currentRoundID != "" {
 					if idsJSON := findingIDsJSON(fixableFindings); idsJSON != "" {
 						if dbErr := e.db.SetStepRoundSelection(currentRoundID, &idsJSON, db.RoundSelectionSourceAutoFix); dbErr != nil {
+							if stepName == types.StepReview {
+								return false, fmt.Errorf("persist Review selected finding ids: %w", dbErr)
+							}
 							slog.Warn("failed to record selected finding ids", "step", stepName, "round", roundNum, "error", dbErr)
 						}
 					}
@@ -403,27 +439,57 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 
 		switch response.action {
 		case types.ActionApprove:
+			if stepName == types.StepReview {
+				if err := e.recordReviewDecisions(run.ID, sr.ID, currentRoundID, outcome.Findings, nil, db.ReviewResolutionDecisionApprove, "user", "approved without fix"); err != nil {
+					return false, err
+				}
+			}
 			// Approved - execution already frozen in executionMS, reset phaseStart
 			// so the done label computes no additional elapsed.
 			phaseStart = time.Now()
 			goto done
 
 		case types.ActionSkip:
+			if stepName == types.StepReview {
+				if err := e.recordReviewDecisions(run.ID, sr.ID, currentRoundID, outcome.Findings, nil, db.ReviewResolutionDecisionSkip, "user", "skipped Review step"); err != nil {
+					return false, err
+				}
+			}
 			// Skip - mark step skipped and return (not an error)
 			if err := e.db.CompleteStepWithStatus(sr.ID, types.StepStatusSkipped, finalExitCode, executionMS, logPath); err != nil {
 				return false, fmt.Errorf("complete step %s (skip): %w", stepName, err)
+			}
+			if stepName == types.StepReview {
+				if err := e.refreshReviewReport(run.ID); err != nil {
+					return false, fmt.Errorf("refresh review resolution report after skip: %w", err)
+				}
 			}
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusSkipped), "", "", "", &executionMS)
 			return false, nil
 
 		case types.ActionAbort:
+			if stepName == types.StepReview {
+				if err := e.recordReviewDecisions(run.ID, sr.ID, currentRoundID, outcome.Findings, nil, db.ReviewResolutionDecisionAbort, "user", "aborted by user"); err != nil {
+					return false, err
+				}
+			}
 			if dbErr := e.db.FailStep(sr.ID, "aborted by user", executionMS); dbErr != nil {
 				slog.Warn("failed to mark step as failed in db", "step", stepName, "error", dbErr)
+			}
+			if stepName == types.StepReview {
+				if err := e.refreshReviewReport(run.ID); err != nil {
+					return false, fmt.Errorf("refresh review resolution report after abort: %w", err)
+				}
 			}
 			e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(types.StepStatusFailed), "", "", "aborted by user", &executionMS)
 			return false, fmt.Errorf("step %s: aborted by user", stepName)
 
 		case types.ActionFix:
+			if stepName == types.StepReview {
+				if err := e.recordReviewDecisions(run.ID, sr.ID, currentRoundID, outcome.Findings, response.findingIDs, db.ReviewResolutionDecisionFix, "user", "selected for fix"); err != nil {
+					return false, err
+				}
+			}
 			telemetry.Track("fix", e.fixTelemetryFields("user", stepName, selectedFindingCount(outcome.Findings, response.findingIDs), 0))
 			// Fix - mark step as fixing, resume execution timer, re-execute.
 			phaseStart = time.Now()
@@ -439,12 +505,18 @@ func (e *Executor) executeStep(ctx context.Context, step Step, sr *db.StepResult
 				allSelectedIDs := combineSelectedFindingIDs(response.findingIDs, mergedFindings)
 				if idsJSON := marshalFindingIDs(allSelectedIDs); idsJSON != "" {
 					if dbErr := e.db.SetStepRoundSelection(currentRoundID, &idsJSON, db.RoundSelectionSourceUser); dbErr != nil {
+						if stepName == types.StepReview {
+							return false, fmt.Errorf("persist Review selected finding ids: %w", dbErr)
+						}
 						slog.Warn("failed to record selected finding ids", "step", stepName, "round", roundNum, "error", dbErr)
 					}
 				}
 				if mergedFindings != "" && mergedFindings != selectedFindings {
 					merged := mergedFindings
 					if dbErr := e.db.SetStepRoundUserFindings(currentRoundID, &merged); dbErr != nil {
+						if stepName == types.StepReview {
+							return false, fmt.Errorf("persist Review user-authored findings: %w", dbErr)
+						}
 						slog.Warn("failed to record user findings", "step", stepName, "round", roundNum, "error", dbErr)
 					}
 				}
@@ -468,8 +540,65 @@ done:
 	if err := e.db.CompleteStepWithStatus(sr.ID, status, finalExitCode, durationMS, logPath); err != nil {
 		return false, fmt.Errorf("complete step %s: %w", stepName, err)
 	}
+	if stepName == types.StepReview {
+		if err := e.refreshReviewReport(run.ID); err != nil {
+			return false, fmt.Errorf("refresh review resolution report after completion: %w", err)
+		}
+	}
 	e.emitStepEventWithFindingsDiffAndError(ipc.EventStepCompleted, run, repo, stepName, string(status), "", "", "", &durationMS)
 	return skipRemaining, nil
+}
+
+func (e *Executor) refreshReviewReport(runID string) error {
+	_, err := reviewreport.Refresh(e.db, e.paths, runID)
+	return err
+}
+
+func requiresReviewRoundEvidence(stepName types.StepName, findings, fixSummary, fixCommit, noCommit, fixDetails *string, fixing bool) bool {
+	if stepName != types.StepReview {
+		return false
+	}
+	return findings != nil || fixSummary != nil || fixCommit != nil || noCommit != nil || fixDetails != nil || fixing
+}
+
+func (e *Executor) recordReviewDecisions(runID, stepResultID, roundID, findingsJSON string, selectedIDs []string, action, actor, reason string) error {
+	ids := selectedIDs
+	if len(ids) == 0 {
+		findings, err := types.ParseFindingsJSON(findingsJSON)
+		if err != nil {
+			return fmt.Errorf("parse review findings for decision persistence: %w", err)
+		}
+		for _, finding := range findings.Items {
+			if finding.ID != "" {
+				ids = append(ids, finding.ID)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var roundIDPtr *string
+	if roundID != "" {
+		roundIDPtr = &roundID
+	}
+	reasonPtr := reason
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, err := e.db.InsertReviewResolutionDecision(db.ReviewResolutionDecision{
+			RunID:        runID,
+			StepResultID: stepResultID,
+			RoundID:      roundIDPtr,
+			FindingID:    id,
+			Action:       action,
+			ActorSource:  actor,
+			Reason:       &reasonPtr,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func roundInsertID(_ string, inserted *db.StepRound, err error) string {
@@ -522,6 +651,14 @@ func (e *Executor) failRun(run *db.Run, repo *db.Repo, err error, ctxs ...contex
 	}
 	run.Status = runStatus
 	run.Error = &errMsg
+	if refreshErr := e.refreshReviewReport(run.ID); refreshErr != nil {
+		errMsg = fmt.Sprintf("%s; refresh review resolution report for terminal run: %v", errMsg, refreshErr)
+		run.Error = &errMsg
+		if dbErr := e.db.UpdateRunErrorStatus(run.ID, errMsg, runStatus); dbErr != nil {
+			slog.Error("failed to update run after review report refresh failure", "run", run.ID, "error", dbErr)
+		}
+		err = fmt.Errorf("%w; refresh review resolution report for terminal run: %v", err, refreshErr)
+	}
 	e.emitRunEvent(ipc.EventRunCompleted, run, repo)
 	return err
 }
