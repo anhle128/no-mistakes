@@ -647,12 +647,13 @@ func TestUnwrapNestedPRBody(t *testing.T) {
 }
 
 func TestAppendGeneratedSections_StripsAgentGeneratedSections(t *testing.T) {
-	body := "## Summary\n\n- improve PR descriptions\n\n## Testing\n\n- model-added testing\n\n## Risk Assessment\n\nold risk\n\n## Pipeline\n\nold pipeline"
+	body := "## Summary\n\n- improve PR descriptions\n\n## Testing\n\n- model-added testing\n\n## Risk Assessment\n\nold risk\n\n## Run Context\n\nold run context\n\n## Pipeline\n\nold pipeline"
 
 	got := appendGeneratedSections(
 		body,
 		"real risk",
 		"## Testing\n\n- deterministic testing",
+		"## Run Context\n\n- Mode: uses this checkout",
 		"## Pipeline\n\n- deterministic pipeline",
 	)
 
@@ -665,7 +666,10 @@ func TestAppendGeneratedSections_StripsAgentGeneratedSections(t *testing.T) {
 	if strings.Count(got, "## Pipeline") != 1 {
 		t.Fatalf("expected one Pipeline section, got:\n%s", got)
 	}
-	if strings.Contains(got, "model-added testing") || strings.Contains(got, "old risk") || strings.Contains(got, "old pipeline") {
+	if strings.Count(got, "## Run Context") != 1 {
+		t.Fatalf("expected one Run Context section, got:\n%s", got)
+	}
+	if strings.Contains(got, "model-added testing") || strings.Contains(got, "old risk") || strings.Contains(got, "old run context") || strings.Contains(got, "old pipeline") {
 		t.Fatalf("expected generated sections to replace agent-provided ones, got:\n%s", got)
 	}
 }
@@ -677,6 +681,7 @@ func TestAppendGeneratedSections_StripsCommonHeadingVariants(t *testing.T) {
 		body,
 		"real risk",
 		"## Testing\n\n- deterministic testing",
+		"",
 		"## Pipeline\n\n- deterministic pipeline",
 	)
 
@@ -692,6 +697,56 @@ func TestAppendGeneratedSections_StripsCommonHeadingVariants(t *testing.T) {
 	if strings.Count(got, "## Pipeline") != 1 {
 		t.Fatalf("expected one normalized Pipeline section, got:\n%s", got)
 	}
+}
+
+func TestBuildRunContextSection_CurrentWorktree(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Run.WorktreeMode = types.WorktreeModeCurrent
+	sctx.Run.WorkDirLabel = stringPtr("repo")
+	sctx.Run.CurrentWorktreeWarning = stringPtr("Automated edits run in this checkout.")
+	sctx.Run.ReviewBaseRef = stringPtr("origin/main")
+	sctx.Run.EvidenceState = types.EvidenceIncomplete
+	sctx.Run.TerminalReason = stringPtr(types.RunTerminalReasonDaemonCrashed)
+
+	got := buildRunContextSection(sctx)
+
+	for _, want := range []string{
+		"## Run Context",
+		"- Mode: uses this checkout",
+		"- Work directory: repo",
+		"- Run: " + sctx.Run.ID,
+		"- Review base: origin/main",
+		"- Evidence state: incomplete",
+		"- Terminal reason: daemon_crashed",
+		"- Warning: Automated edits run in this checkout.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in run context:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, dir) {
+		t.Fatalf("run context leaked absolute workdir path:\n%s", got)
+	}
+}
+
+func TestBuildRunContextSection_IsolatedRunEmpty(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Run.WorktreeMode = types.WorktreeModeIsolated
+	sctx.Run.WorkDirLabel = stringPtr("repo")
+
+	if got := buildRunContextSection(sctx); got != "" {
+		t.Fatalf("expected no run context for isolated run, got:\n%s", got)
+	}
+}
+
+func stringPtr(s string) *string {
+	return &s
 }
 
 func TestPRStep_PrependsIntentSectionWhenIntentSet(t *testing.T) {

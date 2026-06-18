@@ -43,6 +43,44 @@ func TestStepToInfoIncludesFixSummaries(t *testing.T) {
 	}
 }
 
+func TestRunToInfoIncludesWorktreeMetadata(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	repo, err := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
+	if err != nil {
+		t.Fatalf("insert repo: %v", err)
+	}
+	run, err := d.InsertRunWithOptions(repo.ID, "feature", "abc", "def", db.RunInsertOptions{
+		WorktreeMode:               types.WorktreeModeCurrent,
+		WorkDir:                    "/home/user/project",
+		WorkDirLabel:               "project",
+		CurrentWorktreeWarning:     "uses this checkout; fixes may modify it",
+		ReviewBaseRef:              "origin/main",
+		ReviewBaseRefreshAttempted: true,
+	})
+	if err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+
+	info := runToInfo(d, run, nil)
+	if info.WorktreeMode != types.WorktreeModeCurrent {
+		t.Fatalf("worktree mode = %q, want current", info.WorktreeMode)
+	}
+	if info.WorkDir != "/home/user/project" || info.WorkDirLabel != "project" {
+		t.Fatalf("workdir fields = %q/%q", info.WorkDir, info.WorkDirLabel)
+	}
+	if info.CurrentWorktreeWarning == "" {
+		t.Fatal("expected current worktree warning")
+	}
+	if info.ReviewBaseRef != "origin/main" || !info.ReviewBaseRefreshAttempted {
+		t.Fatalf("review base metadata missing: %+v", info)
+	}
+}
+
 func TestStepToInfoNoFixSummariesWithoutFixRounds(t *testing.T) {
 	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

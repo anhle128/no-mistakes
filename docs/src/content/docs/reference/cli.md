@@ -10,16 +10,20 @@ Attach to the active pipeline run for the current branch when one exists. If non
 ```sh
 no-mistakes
 no-mistakes --skip test,lint
+no-mistakes --no-worktree --yolo
 ```
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `-y`, `--yes` | `bool` | `false` | Run setup wizard and accept defaults automatically |
+| `--yolo` | `bool` | `false` | Alias for `--yes`; does not grant any extra approval behavior |
+| `--no-worktree` | `bool` | `false` | Start a new run in the current git worktree instead of a disposable no-mistakes worktree |
 | `--skip` | `string` | (none) | Comma-separated pipeline steps to skip for a new run |
 
 Unlike `no-mistakes attach`, bare `no-mistakes` only auto-attaches to an active run on the current branch.
 `--skip` only applies when bare `no-mistakes` starts a new pipeline run through the wizard; it does not skip a step on an already-active run.
 Valid step names are `intent`, `rebase`, `review`, `test`, `document`, `lint`, `push`, `pr`, and `ci`.
+With `--no-worktree`, bare `no-mistakes` bypasses the gate-push worktree creation path and asks the daemon to start directly in the canonical current git worktree root. The checkout must already be initialized, on a clean non-default branch, and able to prove a review base against the default branch. Automated fixes and commits remain in that checkout, and no-mistakes will not clean up the directory afterward.
 
 ## no-mistakes init
 
@@ -65,12 +69,15 @@ An active run on another branch does not block starting validation for the curre
 no-mistakes axi run --intent "the user's goal"
 no-mistakes axi run --intent "the user's goal" --skip test,lint
 no-mistakes axi run --intent "the user's goal" --yes
+no-mistakes axi run --intent "the user's goal" --no-worktree --yolo
 ```
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--intent` | `string` | (none) | What the user set out to accomplish; required to start a new run |
 | `-y`, `--yes` | `bool` | `false` | Auto-resolve every gate until a decision point or outcome |
+| `--yolo` | `bool` | `false` | Alias for `--yes`; does not grant any extra approval behavior |
+| `--no-worktree` | `bool` | `false` | Run directly in the current git worktree root instead of a disposable no-mistakes worktree |
 | `--skip` | `string` | (none) | Comma-separated pipeline steps to skip |
 
 `--intent` is not a description of the diff.
@@ -78,7 +85,9 @@ It is the user's goal or request, and no-mistakes uses it verbatim instead of tr
 Err on the side of completeness: include the goal, important decisions and tradeoffs, constraints or approaches ruled in or out, and explicit requests that might otherwise look surprising in the diff.
 When starting a new run, `axi run` refuses the default branch and uncommitted working trees with actionable errors instead of auto-branching or auto-committing.
 Reattaching to an in-flight run does not require `--intent`.
+With `--no-worktree`, `axi run` starts through daemon IPC instead of a gate push and executes in the canonical current git worktree root. It rejects dirty tracked files, untracked non-ignored files, detached or unborn HEADs, the default branch, and missing trustworthy default-branch base evidence before pipeline execution starts. If a compatible current-worktree run is already active for the same branch, head, work directory, review base, approval mode, skip list, and intent shape, `axi run` resumes it; incompatible active runs return a structured conflict instead of cancelling them.
 With `--yes`, `axi run` treats both `action: auto-fix` and `action: ask-user` findings as standing consent for the pipeline to fix them by selecting every finding, then accepts the resulting fix review.
+`--yolo` is exactly the same approval mode as `--yes`; passing both is valid and still means only the existing auto-resolution behavior.
 Gates with no findings or only `action: no-op` findings are approved as-is, and each step is fixed at most once so unresolved findings do not loop forever.
 Without `--yes`, an agent driving `axi run` should stop when a gate contains `action: ask-user` findings and relay each finding's ID, file, and full description to the user before responding.
 When the CI step is still monitoring an open PR and checks are green, `axi run` exits successfully with `outcome: checks-passed` instead of waiting for a human merge.
@@ -121,6 +130,8 @@ no-mistakes axi status --run <id>
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--run` | `string` | resolved run | Inspect a specific run ID |
+
+Current-worktree runs include `worktree_mode: current`, a safe `work_dir_label`, a `current_worktree_warning`, and evidence or terminal-state fields when recovery information is incomplete.
 
 ## no-mistakes axi logs
 
@@ -212,7 +223,7 @@ no-mistakes runs [--limit <n>]
 |---|---|---|---|
 | `--limit` | `int` | `10` | Maximum number of runs to display |
 
-Shows runs newest-first with branch, status (styled), short SHA, timestamp, and PR URL if set.
+Shows runs newest-first with branch, status (styled), worktree label, short SHA, timestamp, and PR URL if set.
 
 ## no-mistakes stats
 

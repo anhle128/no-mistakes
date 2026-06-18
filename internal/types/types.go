@@ -22,6 +22,112 @@ const (
 	RunCancelReasonSuperseded    = "cancelled: superseded by new push"
 )
 
+// WorktreeMode describes where a run executes.
+type WorktreeMode string
+
+const (
+	WorktreeModeIsolated WorktreeMode = "isolated"
+	WorktreeModeCurrent  WorktreeMode = "current"
+)
+
+// NormalizeWorktreeMode maps legacy empty values to the historical isolated
+// behavior. Unknown non-empty values are preserved so callers can fail closed.
+func NormalizeWorktreeMode(mode WorktreeMode) WorktreeMode {
+	if mode == "" {
+		return WorktreeModeIsolated
+	}
+	return mode
+}
+
+func (m WorktreeMode) Valid() bool {
+	switch NormalizeWorktreeMode(m) {
+	case WorktreeModeIsolated, WorktreeModeCurrent:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m WorktreeMode) Label() string {
+	switch NormalizeWorktreeMode(m) {
+	case WorktreeModeCurrent:
+		return "uses this checkout"
+	default:
+		return "disposable no-mistakes checkout"
+	}
+}
+
+// MetadataAvailability describes whether run metadata is trustworthy enough to
+// render and clean up normally.
+type MetadataAvailability string
+
+const (
+	MetadataAvailable   MetadataAvailability = "available"
+	MetadataNotRecorded MetadataAvailability = "not_recorded"
+	MetadataInvalid     MetadataAvailability = "invalid"
+)
+
+func NormalizeMetadataAvailability(v MetadataAvailability) MetadataAvailability {
+	if v == "" {
+		return MetadataAvailable
+	}
+	return v
+}
+
+func (v MetadataAvailability) Valid() bool {
+	switch NormalizeMetadataAvailability(v) {
+	case MetadataAvailable, MetadataNotRecorded, MetadataInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
+// EvidenceState is the run-level evidence reconstruction state rendered after
+// failures, cancellations, stale recovery, or malformed metadata.
+type EvidenceState string
+
+const (
+	EvidenceComplete   EvidenceState = "complete"
+	EvidenceIncomplete EvidenceState = "incomplete"
+	EvidenceDegraded   EvidenceState = "degraded"
+)
+
+func NormalizeEvidenceState(v EvidenceState) EvidenceState {
+	if v == "" {
+		return EvidenceComplete
+	}
+	return v
+}
+
+func (v EvidenceState) Valid() bool {
+	switch NormalizeEvidenceState(v) {
+	case EvidenceComplete, EvidenceIncomplete, EvidenceDegraded:
+		return true
+	default:
+		return false
+	}
+}
+
+const (
+	RunTerminalReasonSetupFailed       = "setup_failed"
+	RunTerminalReasonDaemonCrashed     = "daemon_crashed"
+	RunTerminalReasonCancelledByUser   = "cancelled_by_user"
+	RunTerminalReasonSuperseded        = "superseded"
+	RunTerminalReasonNoTrustworthyBase = "rejected_no_trustworthy_base"
+)
+
+const (
+	RejectionNoTrustworthyBase = "rejected_no_trustworthy_base"
+	RejectionDirtyWorktree     = "rejected_dirty_worktree"
+	RejectionDetachedHead      = "rejected_detached_head"
+	RejectionDefaultBranch     = "rejected_default_branch"
+	RejectionUnbornHead        = "rejected_unborn_head"
+	RejectionActiveRunConflict = "rejected_active_run_conflict"
+	RejectionRepoMismatch      = "rejected_repo_mismatch"
+	RejectionMissingIntent     = "missing_intent"
+)
+
 // StepName identifies a pipeline step.
 type StepName string
 

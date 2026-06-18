@@ -57,6 +57,25 @@ func TestModel_View_LogTailWrappedInBox(t *testing.T) {
 	}
 }
 
+func TestModelViewShowsCurrentWorktreeWarning(t *testing.T) {
+	run := testRun()
+	run.WorktreeMode = types.WorktreeModeCurrent
+	run.WorkDir = "/private/tmp/project"
+	run.WorkDirLabel = "project"
+	run.CurrentWorktreeWarning = "project: uses this checkout; pipeline fixes may modify it"
+
+	m := NewModel("/tmp/sock", nil, run)
+	view := stripANSI(m.View())
+	for _, want := range []string{"Current worktree", "project: uses this checkout"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("current-worktree warning missing %q in:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, run.WorkDir) {
+		t.Fatalf("current-worktree warning should not render full workdir, got:\n%s", view)
+	}
+}
+
 // --- Findings gutter alignment tests ---
 
 func TestRenderFindings_GutterFixedWidth(t *testing.T) {

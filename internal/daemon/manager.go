@@ -214,10 +214,250 @@ func (m *RunManager) HandleRerun(ctx context.Context, repoID, branch string, ski
 	return m.startRun(ctx, repo, branch, headSHA, baseSHA, "rerun", skipSteps, intent)
 }
 
+// ActiveRunConflictError reports that a new direct start cannot safely reuse or
+// replace an existing active run.
+type ActiveRunConflictError struct {
+	RunID            string             `json:"run_id"`
+	WorktreeMode     types.WorktreeMode `json:"worktree_mode"`
+	Branch           string             `json:"branch"`
+	ShortHead        string             `json:"short_head"`
+	WorkDirLabel     string             `json:"work_dir_label,omitempty"`
+	Status           types.RunStatus    `json:"status"`
+	ResumeCommand    string             `json:"resume_command,omitempty"`
+	AbortCommand     string             `json:"abort_command,omitempty"`
+	RequestedMode    types.WorktreeMode `json:"requested_worktree_mode"`
+	RequestedHead    string             `json:"requested_short_head"`
+	RequestedWorkDir string             `json:"requested_work_dir_label,omitempty"`
+}
+
+func (e *ActiveRunConflictError) Error() string {
+	return fmt.Sprintf("active run %s on %s is incompatible with this request", e.RunID, e.Branch)
+}
+
+func (e *ActiveRunConflictError) RPCErrorCode() int { return ipc.ErrInvalidParams }
+func (e *ActiveRunConflictError) RPCErrorData() any { return e }
+
+type CurrentWorktreeStartError struct {
+	Message      string             `json:"message"`
+	Reason       string             `json:"reason"`
+	Recovery     string             `json:"recovery,omitempty"`
+	WorktreeMode types.WorktreeMode `json:"worktree_mode"`
+}
+
+func (e *CurrentWorktreeStartError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.Reason
+}
+
+func (e *CurrentWorktreeStartError) RPCErrorCode() int { return ipc.ErrInvalidParams }
+func (e *CurrentWorktreeStartError) RPCErrorData() any { return e }
+
+// HandleStartRun creates or resumes a compatible direct-start run.
+func (m *RunManager) HandleStartRun(ctx context.Context, params *ipc.StartRunParams) (string, bool, error) {
+	if params == nil {
+		return "", false, currentStartError("missing start_run params", types.RejectionActiveRunConflict, "")
+	}
+	repo, err := m.db.GetRepo(params.RepoID)
+	if err != nil {
+		return "", false, fmt.Errorf("get repo: %w", err)
+	}
+	if repo == nil {
+		return "", false, fmt.Errorf("unknown repo %s", params.RepoID)
+	}
+	mode := types.NormalizeWorktreeMode(params.WorktreeMode)
+	if !mode.Valid() {
+		return "", false, fmt.Errorf("invalid worktree mode %q", params.WorktreeMode)
+	}
+	startParams := *params
+	startParams.WorktreeMode = mode
+	if mode == types.WorktreeModeCurrent {
+		runID, resumed, err := m.tryResumeCurrentRun(ctx, repo, &startParams)
+		if err != nil || resumed {
+			return runID, resumed, err
+		}
+		if startParams.RequireIntent && strings.TrimSpace(startParams.Intent) == "" {
+			return "", false, currentStartError("--intent is required to start a run", types.RejectionMissingIntent, `Pass what the user set out to accomplish: no-mistakes axi run --intent "the user's goal"`)
+		}
+		if err := prepareCurrentStartParams(ctx, repo, &startParams); err != nil {
+			return "", false, err
+		}
+	}
+	return m.startRunWithOptions(ctx, repo, startParams.Branch, startParams.HeadSHA, startParams.BaseSHA, startRunOptions{
+		trigger:                     "direct",
+		skipSteps:                   startParams.SkipSteps,
+		intent:                      startParams.Intent,
+		worktreeMode:                mode,
+		workDir:                     startParams.WorkDir,
+		workDirLabel:                startParams.WorkDirLabel,
+		currentWorktreeWarning:      startParams.CurrentWorktreeWarning,
+		reviewBaseRef:               startParams.ReviewBaseRef,
+		reviewBaseRefreshAttempted:  startParams.ReviewBaseRefreshAttempted,
+		reviewBaseRefreshError:      startParams.ReviewBaseRefreshError,
+		rejectIncompatibleActiveRun: mode == types.WorktreeModeCurrent,
+	})
+}
+
+func (m *RunManager) tryResumeCurrentRun(ctx context.Context, repo *db.Repo, params *ipc.StartRunParams) (string, bool, error) {
+	rawWorkDir := strings.TrimSpace(params.WorkDir)
+	if rawWorkDir == "" || !filepath.IsAbs(rawWorkDir) {
+		return "", false, nil
+	}
+	workDir, err := git.CurrentWorktreeRoot(ctx, rawWorkDir)
+	if err != nil {
+		return "", false, nil
+	}
+	if err := verifyCurrentWorktreeRepo(repo, workDir); err != nil {
+		return "", false, err
+	}
+	branch, err := git.CurrentBranch(ctx, workDir)
+	if err != nil || branch == "HEAD" {
+		return "", false, nil
+	}
+	if requested := strings.TrimSpace(params.Branch); requested != "" && requested != branch {
+		return "", false, nil
+	}
+	active, err := m.db.GetActiveRun(repo.ID, branch)
+	if err != nil {
+		return "", false, fmt.Errorf("get active run: %w", err)
+	}
+	if active == nil {
+		return "", false, nil
+	}
+	if len(params.SkipSteps) == 0 && currentStartResumeCompatible(active, params.HeadSHA, params.BaseSHA, workDir, params.Intent) {
+		return active.ID, true, nil
+	}
+	return "", false, activeRunConflict(active, types.WorktreeModeCurrent, params.HeadSHA, safeWorkDirLabel(workDir))
+}
+
+func prepareCurrentStartParams(ctx context.Context, repo *db.Repo, params *ipc.StartRunParams) error {
+	rawWorkDir := strings.TrimSpace(params.WorkDir)
+	if rawWorkDir == "" {
+		return currentStartError("current worktree mode requires work_dir", types.RejectionActiveRunConflict, "Pass the absolute path to the git worktree root")
+	}
+	if !filepath.IsAbs(rawWorkDir) {
+		return currentStartError("current worktree mode requires an absolute work_dir", types.RejectionActiveRunConflict, "Pass the absolute path to the git worktree root")
+	}
+	workDir, err := git.CurrentWorktreeRoot(ctx, rawWorkDir)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("resolve current worktree: %v", err), types.RejectionActiveRunConflict, "Run from an initialized git worktree")
+	}
+	if err := verifyCurrentWorktreeRepo(repo, workDir); err != nil {
+		return err
+	}
+	branch, err := git.CurrentBranch(ctx, workDir)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("resolve current branch: %v", err), types.RejectionUnbornHead, "Check out a branch with at least one commit")
+	}
+	if branch == "HEAD" {
+		return currentStartError("detached HEAD", types.RejectionDetachedHead, "Check out a branch before validating")
+	}
+	if requested := strings.TrimSpace(params.Branch); requested != "" && requested != branch {
+		return currentStartError(fmt.Sprintf("requested branch %q does not match current branch %q", requested, branch), types.RejectionActiveRunConflict, "Retry from the branch you want to validate")
+	}
+	if repo.DefaultBranch != "" && branch == repo.DefaultBranch {
+		return currentStartError(fmt.Sprintf("refusing to validate default branch %q", branch), types.RejectionDefaultBranch, "Switch to a feature branch, then retry")
+	}
+	headSHA, err := git.HeadSHA(ctx, workDir)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("resolve current HEAD: %v", err), types.RejectionUnbornHead, "Create at least one commit on the branch before validating")
+	}
+	if requested := strings.TrimSpace(params.HeadSHA); requested != "" && requested != headSHA {
+		return currentStartError("requested head does not match current HEAD", types.RejectionActiveRunConflict, "Retry after refreshing the current branch state")
+	}
+	dirty, err := git.HasCommittedWorktreeDirt(ctx, workDir)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("inspect current worktree: %v", err), types.RejectionDirtyWorktree, "Run git status, then retry")
+	}
+	if dirty {
+		return currentStartError("current worktree is not clean", types.RejectionDirtyWorktree, "Commit or remove tracked changes and untracked non-ignored files, then retry")
+	}
+	remoteName := currentModeRemoteName(ctx, workDir, repo.UpstreamURL)
+	base, err := git.ResolveCurrentReviewBase(ctx, workDir, remoteName, repo.DefaultBranch)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("cannot prove default-branch merge base: %v", err), types.RejectionNoTrustworthyBase, "Fetch the default branch or fix remote access, then retry")
+	}
+	label := safeWorkDirLabel(workDir)
+	params.Branch = branch
+	params.HeadSHA = headSHA
+	params.BaseSHA = base.BaseSHA
+	params.WorkDir = workDir
+	params.WorkDirLabel = label
+	params.CurrentWorktreeWarning = currentWorktreeWarning(label)
+	params.ReviewBaseRef = base.Ref
+	params.ReviewBaseRefreshAttempted = base.RefreshAttempted
+	params.ReviewBaseRefreshError = base.RefreshError
+	return nil
+}
+
+func verifyCurrentWorktreeRepo(repo *db.Repo, workDir string) error {
+	if repo == nil {
+		return currentStartError("unknown repo", types.RejectionRepoMismatch, "Run no-mistakes init for this checkout, then retry")
+	}
+	repoRoot, err := git.FindMainRepoRoot(repo.WorkingPath)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("resolve registered repo root: %v", err), types.RejectionRepoMismatch, "Run no-mistakes init for this checkout, then retry")
+	}
+	workRoot, err := git.FindMainRepoRoot(workDir)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("resolve current repo root: %v", err), types.RejectionRepoMismatch, "Run from the checkout registered with no-mistakes")
+	}
+	if repoRoot != workRoot {
+		return currentStartError(
+			fmt.Sprintf("current worktree %q does not belong to registered repo %q", workDir, repo.WorkingPath),
+			types.RejectionRepoMismatch,
+			"Run no-mistakes init in this checkout, or retry from the registered repo",
+		)
+	}
+	return nil
+}
+
+func currentStartError(message, reason, recovery string) *CurrentWorktreeStartError {
+	return &CurrentWorktreeStartError{
+		Message:      message,
+		Reason:       reason,
+		Recovery:     recovery,
+		WorktreeMode: types.WorktreeModeCurrent,
+	}
+}
+
+type startRunOptions struct {
+	trigger                     string
+	skipSteps                   []types.StepName
+	intent                      string
+	worktreeMode                types.WorktreeMode
+	workDir                     string
+	workDirLabel                string
+	currentWorktreeWarning      string
+	reviewBaseRef               string
+	reviewBaseRefreshAttempted  bool
+	reviewBaseRefreshError      string
+	rejectIncompatibleActiveRun bool
+}
+
 // startRun creates a run, sets up a worktree, and launches pipeline execution.
 // A non-empty intent is stamped onto the run as agent-supplied, so the intent
 // step uses it instead of inferring from transcripts.
 func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSHA, baseSHA, trigger string, skipSteps []types.StepName, intent string) (string, error) {
+	runID, _, err := m.startRunWithOptions(ctx, repo, branch, headSHA, baseSHA, startRunOptions{
+		trigger:      trigger,
+		skipSteps:    skipSteps,
+		intent:       intent,
+		worktreeMode: types.WorktreeModeIsolated,
+	})
+	return runID, err
+}
+
+func (m *RunManager) startRunWithOptions(ctx context.Context, repo *db.Repo, branch, headSHA, baseSHA string, opts startRunOptions) (string, bool, error) {
+	trigger := opts.trigger
+	if trigger == "" {
+		trigger = "direct"
+	}
+	mode := types.NormalizeWorktreeMode(opts.worktreeMode)
+	if mode == "" {
+		mode = types.WorktreeModeIsolated
+	}
 	branchRole := telemetryBranchRole(branch, repo.DefaultBranch)
 	trackStartFailure := func(stage string) {
 		telemetry.Track("run", telemetry.Fields{
@@ -230,7 +470,7 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 
 	if m.shuttingDown.Load() {
 		trackStartFailure("daemon_shutdown")
-		return "", fmt.Errorf("daemon is shutting down")
+		return "", false, fmt.Errorf("daemon is shutting down")
 	}
 
 	// Serialize per repo+branch to prevent two concurrent pushes from both
@@ -241,21 +481,53 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 	branchMu.Lock()
 	defer branchMu.Unlock()
 
-	// Cancel any active run for this repo+branch.
-	m.cancelActiveRuns(repo.ID, branch)
+	if opts.rejectIncompatibleActiveRun {
+		active, err := m.db.GetActiveRun(repo.ID, branch)
+		if err != nil {
+			trackStartFailure("active_run_lookup")
+			return "", false, fmt.Errorf("get active run: %w", err)
+		}
+		if active != nil {
+			if len(opts.skipSteps) == 0 && currentStartCompatible(active, headSHA, baseSHA, opts.workDir, opts.intent) {
+				return active.ID, true, nil
+			}
+			trackStartFailure("active_run_conflict")
+			return "", false, activeRunConflict(active, mode, headSHA, opts.workDirLabel)
+		}
+	} else {
+		active, err := m.db.GetActiveRun(repo.ID, branch)
+		if err != nil {
+			trackStartFailure("active_run_lookup")
+			return "", false, fmt.Errorf("get active run: %w", err)
+		}
+		if active != nil && types.NormalizeWorktreeMode(active.WorktreeMode) != mode {
+			trackStartFailure("active_run_conflict")
+			return "", false, activeRunConflict(active, mode, headSHA, opts.workDirLabel)
+		}
+		// Cancel same-mode active runs for this repo+branch.
+		m.cancelActiveRuns(repo.ID, branch)
+	}
 
 	// Create run record.
-	run, err := m.db.InsertRun(repo.ID, branch, headSHA, baseSHA)
+	run, err := m.db.InsertRunWithOptions(repo.ID, branch, headSHA, baseSHA, db.RunInsertOptions{
+		WorktreeMode:               mode,
+		WorkDir:                    opts.workDir,
+		WorkDirLabel:               opts.workDirLabel,
+		CurrentWorktreeWarning:     opts.currentWorktreeWarning,
+		ReviewBaseRef:              opts.reviewBaseRef,
+		ReviewBaseRefreshAttempted: opts.reviewBaseRefreshAttempted,
+		ReviewBaseRefreshError:     opts.reviewBaseRefreshError,
+	})
 	if err != nil {
 		trackStartFailure("create_run")
-		return "", fmt.Errorf("create run: %w", err)
+		return "", false, fmt.Errorf("create run: %w", err)
 	}
 
 	// Stamp an agent-supplied intent onto the run before the pipeline starts,
 	// so the intent step finds it already present and skips transcript-based
 	// inference. A persist failure is non-fatal: the intent step would simply
 	// fall back to inference.
-	if trimmed := strings.TrimSpace(intent); trimmed != "" {
+	if trimmed := strings.TrimSpace(opts.intent); trimmed != "" {
 		if err := m.db.UpdateRunIntent(run.ID, db.RunIntent{Summary: trimmed, Source: "agent", Score: 1}); err != nil {
 			slog.Warn("failed to persist agent-supplied intent", "run_id", run.ID, "error", err)
 		} else {
@@ -267,32 +539,43 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 		}
 	}
 
-	// Create worktree from the gate bare repo.
 	gateDir := m.paths.RepoDir(repo.ID)
-	wtDir := m.paths.WorktreeDir(repo.ID, run.ID)
-	if err := git.WorktreeAdd(ctx, gateDir, wtDir, headSHA); err != nil {
-		m.db.UpdateRunError(run.ID, fmt.Sprintf("create worktree: %s", err))
-		trackStartFailure("create_worktree")
-		return "", fmt.Errorf("create worktree: %w", err)
-	}
-	if err := git.CopyLocalUserIdentity(ctx, repo.WorkingPath, wtDir); err != nil {
-		m.db.UpdateRunError(run.ID, fmt.Sprintf("configure worktree git identity: %s", err))
-		trackStartFailure("configure_worktree_identity")
-		return "", fmt.Errorf("configure worktree git identity: %w", err)
-	}
-	if repo.DefaultBranch != "" {
-		if err := git.FetchRemoteBranch(ctx, wtDir, "origin", repo.DefaultBranch); err != nil {
-			slog.Warn("failed to fetch default branch into worktree", "run_id", run.ID, "branch", repo.DefaultBranch, "error", err)
+	workDir := opts.workDir
+	managedWorktree := mode != types.WorktreeModeCurrent
+	if managedWorktree {
+		// Create worktree from the gate bare repo.
+		workDir = m.paths.WorktreeDir(repo.ID, run.ID)
+		if err := git.WorktreeAdd(ctx, gateDir, workDir, headSHA); err != nil {
+			m.db.UpdateRunError(run.ID, fmt.Sprintf("create worktree: %s", err))
+			m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
+			trackStartFailure("create_worktree")
+			return "", false, fmt.Errorf("create worktree: %w", err)
 		}
+		if err := git.CopyLocalUserIdentity(ctx, repo.WorkingPath, workDir); err != nil {
+			m.db.UpdateRunError(run.ID, fmt.Sprintf("configure worktree git identity: %s", err))
+			m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
+			trackStartFailure("configure_worktree_identity")
+			return "", false, fmt.Errorf("configure worktree git identity: %w", err)
+		}
+		if repo.DefaultBranch != "" {
+			if err := git.FetchRemoteBranch(ctx, workDir, "origin", repo.DefaultBranch); err != nil {
+				slog.Warn("failed to fetch default branch into worktree", "run_id", run.ID, "branch", repo.DefaultBranch, "error", err)
+			}
+		}
+	} else if strings.TrimSpace(workDir) == "" {
+		m.db.UpdateRunError(run.ID, "current worktree mode requires work_dir")
+		m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
+		trackStartFailure("missing_current_workdir")
+		return "", false, fmt.Errorf("current worktree mode requires work_dir")
 	}
 
 	// Track whether the background goroutine takes ownership of worktree cleanup.
 	// If setup fails before the goroutine launches, we must clean up here.
-	bgOwnsWorktree := false
+	bgOwnsCleanup := false
 	defer func() {
-		if !bgOwnsWorktree {
-			if rmErr := git.WorktreeRemove(context.Background(), gateDir, wtDir); rmErr != nil {
-				slog.Warn("failed to remove worktree during setup cleanup", "path", wtDir, "error", rmErr)
+		if managedWorktree && !bgOwnsCleanup {
+			if rmErr := git.WorktreeRemove(context.Background(), gateDir, workDir); rmErr != nil {
+				slog.Warn("failed to remove worktree during setup cleanup", "path", workDir, "error", rmErr)
 			}
 		}
 	}()
@@ -300,14 +583,16 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 	globalCfg, err := config.LoadGlobal(m.paths.ConfigFile())
 	if err != nil {
 		m.db.UpdateRunError(run.ID, fmt.Sprintf("load config: %s", err))
+		m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
 		trackStartFailure("load_global_config")
-		return "", fmt.Errorf("load global config: %w", err)
+		return "", false, fmt.Errorf("load global config: %w", err)
 	}
-	repoCfg, err := config.LoadRepo(wtDir)
+	repoCfg, err := config.LoadRepo(workDir)
 	if err != nil {
 		m.db.UpdateRunError(run.ID, fmt.Sprintf("load config: %s", err))
+		m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
 		trackStartFailure("load_repo_config")
-		return "", fmt.Errorf("load repo config: %w", err)
+		return "", false, fmt.Errorf("load repo config: %w", err)
 	}
 	cfg := config.Merge(globalCfg, repoCfg)
 
@@ -318,8 +603,9 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 	} else {
 		if err := cfg.ResolveAgent(ctx, exec.LookPath); err != nil {
 			m.db.UpdateRunError(run.ID, err.Error())
+			m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
 			trackStartFailure("resolve_agent")
-			return "", err
+			return "", false, err
 		}
 		var agErr error
 		ag, agErr = agent.NewWithOptions(cfg.Agent, cfg.AgentPath(), cfg.AgentArgs(), agent.Options{
@@ -327,8 +613,9 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 		})
 		if agErr != nil {
 			m.db.UpdateRunError(run.ID, fmt.Sprintf("create agent: %s", agErr))
+			m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
 			trackStartFailure("create_agent")
-			return "", fmt.Errorf("create agent: %w", agErr)
+			return "", false, fmt.Errorf("create agent: %w", agErr)
 		}
 		// Steer every pipeline agent to keep writes inside the worktree and
 		// avoid mutating system state (e.g. brew/Homebrew touching
@@ -349,7 +636,7 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 	// Create executor with event broadcast.
 	runCtx, cancel := context.WithCancelCause(context.Background())
 	executor := pipeline.NewExecutor(m.db, m.paths, cfg, ag, execSteps, m.broadcast)
-	executor.SetSkippedSteps(skipSteps)
+	executor.SetSkippedSteps(opts.skipSteps)
 
 	// Track executor.
 	done := make(chan struct{})
@@ -360,7 +647,7 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 	m.mu.Unlock()
 
 	// Background goroutine now owns worktree cleanup.
-	bgOwnsWorktree = true
+	bgOwnsCleanup = true
 
 	// Launch pipeline in background.
 	m.wg.Add(1)
@@ -391,14 +678,20 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 				if dbErr := m.db.UpdateRunErrorStatus(run.ID, errMsg, types.RunFailed); dbErr != nil {
 					slog.Error("failed to update run after panic", "run_id", run.ID, "error", dbErr)
 				}
+				if dbErr := m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonDaemonCrashed, types.EvidenceIncomplete); dbErr != nil {
+					slog.Error("failed to update run terminal reason after panic", "run_id", run.ID, "error", dbErr)
+				}
 			}
 			cancel(nil)
 			ag.Close()
 			// Close subscriber channels for this run.
 			m.closeSubscribers(run.ID)
-			// Clean up worktree.
-			if rmErr := git.WorktreeRemove(context.Background(), gateDir, wtDir); rmErr != nil {
-				slog.Warn("failed to remove worktree", "path", wtDir, "error", rmErr)
+			// Clean up only no-mistakes-managed worktrees. Current-worktree
+			// mode runs in the user's checkout and must never remove it.
+			if managedWorktree {
+				if rmErr := git.WorktreeRemove(context.Background(), gateDir, workDir); rmErr != nil {
+					slog.Warn("failed to remove worktree", "path", workDir, "error", rmErr)
+				}
 			}
 			// Remove tracking.
 			m.mu.Lock()
@@ -408,7 +701,7 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 			m.mu.Unlock()
 		}()
 
-		if err := executor.Execute(runCtx, run, repo, wtDir); err != nil {
+		if err := executor.Execute(runCtx, run, repo, workDir); err != nil {
 			fields := telemetry.Fields{
 				"action":      "finished",
 				"trigger":     trigger,
@@ -439,7 +732,82 @@ func (m *RunManager) startRun(ctx context.Context, repo *db.Repo, branch, headSH
 		}
 	}()
 
-	return run.ID, nil
+	return run.ID, false, nil
+}
+
+func currentStartCompatible(active *db.Run, headSHA, baseSHA, workDir, intent string) bool {
+	if active == nil {
+		return false
+	}
+	if types.NormalizeWorktreeMode(active.WorktreeMode) != types.WorktreeModeCurrent {
+		return false
+	}
+	if active.HeadSHA != headSHA || active.BaseSHA != baseSHA {
+		return false
+	}
+	if active.WorkDir == nil || *active.WorkDir != workDir {
+		return false
+	}
+	requestedIntent := strings.TrimSpace(intent)
+	if requestedIntent != "" {
+		if active.Intent == nil || strings.TrimSpace(*active.Intent) != requestedIntent {
+			return false
+		}
+	}
+	return true
+}
+
+func currentStartResumeCompatible(active *db.Run, headSHA, baseSHA, workDir, intent string) bool {
+	if active == nil {
+		return false
+	}
+	if types.NormalizeWorktreeMode(active.WorktreeMode) != types.WorktreeModeCurrent {
+		return false
+	}
+	if strings.TrimSpace(headSHA) == "" || active.HeadSHA != headSHA {
+		return false
+	}
+	if strings.TrimSpace(baseSHA) != "" && active.BaseSHA != baseSHA {
+		return false
+	}
+	if active.WorkDir == nil || *active.WorkDir != workDir {
+		return false
+	}
+	requestedIntent := strings.TrimSpace(intent)
+	if requestedIntent != "" {
+		if active.Intent == nil || strings.TrimSpace(*active.Intent) != requestedIntent {
+			return false
+		}
+	}
+	return true
+}
+
+func activeRunConflict(active *db.Run, requestedMode types.WorktreeMode, requestedHead, requestedWorkDirLabel string) *ActiveRunConflictError {
+	label := active.WorktreeMode.Label()
+	if active.WorkDirLabel != nil && *active.WorkDirLabel != "" {
+		label = *active.WorkDirLabel
+	}
+	shortActive := active.HeadSHA
+	if len(shortActive) > 8 {
+		shortActive = shortActive[:8]
+	}
+	shortRequested := requestedHead
+	if len(shortRequested) > 8 {
+		shortRequested = shortRequested[:8]
+	}
+	return &ActiveRunConflictError{
+		RunID:            active.ID,
+		WorktreeMode:     types.NormalizeWorktreeMode(active.WorktreeMode),
+		Branch:           active.Branch,
+		ShortHead:        shortActive,
+		WorkDirLabel:     label,
+		Status:           active.Status,
+		ResumeCommand:    "no-mistakes axi run --intent \"...\"",
+		AbortCommand:     "no-mistakes axi abort --run " + active.ID,
+		RequestedMode:    requestedMode,
+		RequestedHead:    shortRequested,
+		RequestedWorkDir: requestedWorkDirLabel,
+	}
 }
 
 func telemetryBranchRole(branch, defaultBranch string) string {
@@ -463,6 +831,33 @@ func telemetryFailedStepName(database *db.DB, runID string) string {
 		}
 	}
 	return ""
+}
+
+func currentModeRemoteName(ctx context.Context, workDir, upstreamURL string) string {
+	remotes, err := git.Run(ctx, workDir, "remote")
+	if err != nil {
+		return "origin"
+	}
+	upstreamURL = strings.TrimSpace(upstreamURL)
+	for _, remote := range strings.Fields(remotes) {
+		url, err := git.GetRemoteURL(ctx, workDir, remote)
+		if err == nil && upstreamURL != "" && strings.TrimSpace(url) == upstreamURL {
+			return remote
+		}
+	}
+	return "origin"
+}
+
+func safeWorkDirLabel(workDir string) string {
+	base := filepath.Base(workDir)
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		return "current checkout"
+	}
+	return base
+}
+
+func currentWorktreeWarning(label string) string {
+	return fmt.Sprintf("%s: uses this checkout; pipeline fixes may modify it and commits remain here", label)
 }
 
 // HandleRespond routes a user approval action to the executor for the given run.

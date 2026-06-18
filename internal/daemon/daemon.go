@@ -408,6 +408,18 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 		return &ipc.RerunResult{RunID: runID}, nil
 	})
 
+	srv.Handle(ipc.MethodStartRun, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		var p ipc.StartRunParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		runID, resumed, err := mgr.HandleStartRun(ctx, &p)
+		if err != nil {
+			return nil, err
+		}
+		return &ipc.StartRunResult{RunID: runID, Resumed: resumed}, nil
+	})
+
 	srv.Handle(ipc.MethodPushReceived, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
 		var p ipc.PushReceivedParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -470,16 +482,41 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 
 func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 	info := &ipc.RunInfo{
-		ID:        r.ID,
-		RepoID:    r.RepoID,
-		Branch:    r.Branch,
-		HeadSHA:   r.HeadSHA,
-		BaseSHA:   r.BaseSHA,
-		Status:    r.Status,
-		PRURL:     r.PRURL,
-		Error:     r.Error,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		ID:                         r.ID,
+		RepoID:                     r.RepoID,
+		Branch:                     r.Branch,
+		HeadSHA:                    r.HeadSHA,
+		BaseSHA:                    r.BaseSHA,
+		Status:                     r.Status,
+		PRURL:                      r.PRURL,
+		Error:                      r.Error,
+		WorktreeMode:               r.WorktreeMode,
+		MetadataAvailability:       r.MetadataAvailability,
+		EvidenceState:              r.EvidenceState,
+		ReviewBaseRefreshAttempted: r.ReviewBaseRefreshAttempted,
+		CreatedAt:                  r.CreatedAt,
+		UpdatedAt:                  r.UpdatedAt,
+	}
+	if r.WorkDir != nil {
+		info.WorkDir = *r.WorkDir
+	}
+	if r.WorkDirLabel != nil {
+		info.WorkDirLabel = *r.WorkDirLabel
+	}
+	if r.CurrentWorktreeWarning != nil {
+		info.CurrentWorktreeWarning = *r.CurrentWorktreeWarning
+	}
+	if r.TerminalReason != nil {
+		info.TerminalReason = *r.TerminalReason
+	}
+	if r.ReviewBaseRef != nil {
+		info.ReviewBaseRef = *r.ReviewBaseRef
+	}
+	if r.ReviewBaseRefreshError != nil {
+		info.ReviewBaseRefreshError = *r.ReviewBaseRefreshError
+	}
+	if r.RejectionReason != nil {
+		info.RejectionReason = *r.RejectionReason
 	}
 	if len(steps) > 0 {
 		info.Steps = make([]ipc.StepResultInfo, 0, len(steps))

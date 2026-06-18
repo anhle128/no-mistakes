@@ -514,11 +514,23 @@ func (e *Executor) failRun(run *db.Run, repo *db.Repo, err error, ctxs ...contex
 		}
 	}
 	runStatus := types.RunFailed
+	evidenceState := types.EvidenceIncomplete
+	terminalReason := ""
 	if errMsg == types.RunCancelReasonAbortedByUser || errMsg == types.RunCancelReasonSuperseded {
 		runStatus = types.RunCancelled
+		if errMsg == types.RunCancelReasonAbortedByUser {
+			terminalReason = types.RunTerminalReasonCancelledByUser
+		} else {
+			terminalReason = types.RunTerminalReasonSuperseded
+		}
 	}
 	if dbErr := e.db.UpdateRunErrorStatus(run.ID, errMsg, runStatus); dbErr != nil {
 		slog.Error("failed to update run error status", "run", run.ID, "error", dbErr)
+	}
+	if terminalReason != "" {
+		if dbErr := e.db.UpdateRunTerminalReason(run.ID, terminalReason, evidenceState); dbErr != nil {
+			slog.Error("failed to update run terminal reason", "run", run.ID, "error", dbErr)
+		}
 	}
 	run.Status = runStatus
 	run.Error = &errMsg
