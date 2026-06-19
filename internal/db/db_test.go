@@ -102,9 +102,16 @@ func TestOpenMigratesExistingStepRoundsColumns(t *testing.T) {
 		t.Fatalf("iterate table_info: %v", err)
 	}
 
-	for _, name := range []string{"selected_finding_ids", "selection_source", "fix_summary"} {
+	for _, name := range []string{"selected_finding_ids", "selection_source", "fix_summary", "user_findings_json", "fix_commit_sha", "no_commit_reason", "fix_resolution_details_json"} {
 		if !columns[name] {
 			t.Fatalf("expected migrated column %q to exist", name)
+		}
+	}
+
+	for _, table := range []string{"review_resolution_reports", "review_resolution_decisions"} {
+		var name string
+		if err := d.sql.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name); err != nil {
+			t.Fatalf("expected migrated table %q to exist: %v", table, err)
 		}
 	}
 }

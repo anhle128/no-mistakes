@@ -17,6 +17,7 @@ var (
 	secretAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|token|secret|password|passwd)\b\s*[:=]\s*["']?[^"'\s]+`)
 	secretValuePattern      = regexp.MustCompile(`\b(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|xox[baprs]-[A-Za-z0-9-]{12,})\b`)
 	rawDiffPattern          = regexp.MustCompile(`(?m)^(diff --git .+|index [0-9a-f]+\.\.[0-9a-f]+.*|@@ .+ @@.*|[+-]{3} .+|[+-].*)$`)
+	rawLogTranscriptPattern = regexp.MustCompile(`(?im)^\s*(stdout|stderr|transcript|raw transcript|tool_call|tool_use|tool_result|agent log|command log|execution log)\s*[:=].*$`)
 )
 
 func sanitizeField(value string) string {
@@ -28,8 +29,8 @@ func sanitizeShort(value string) string {
 }
 
 func sanitizeChangedFile(value string) string {
+	value = strings.ReplaceAll(value, "`", "")
 	clean := sanitizeBounded(value, maxChangedFileRunes)
-	clean = strings.ReplaceAll(clean, "`", "")
 	clean = strings.TrimSpace(clean)
 	if clean == "." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "\n") {
 		return ""
@@ -42,6 +43,7 @@ func sanitizeBounded(value string, limit int) string {
 	value = strings.ReplaceAll(value, "\r", "\n")
 	value = stripCodeFences(value)
 	value = rawDiffPattern.ReplaceAllString(value, "[diff content removed]")
+	value = rawLogTranscriptPattern.ReplaceAllString(value, "[log/transcript content removed]")
 	value = secretAssignmentPattern.ReplaceAllString(value, "$1=[REDACTED]")
 	value = secretValuePattern.ReplaceAllString(value, "[REDACTED_SECRET]")
 	lines := strings.Split(value, "\n")

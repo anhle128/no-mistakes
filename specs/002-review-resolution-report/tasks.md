@@ -21,10 +21,10 @@ description: "Task list for Review Resolution Report implementation"
 
 **Purpose**: Confirm scope, source boundaries, and validation targets before editing implementation files.
 
-- [ ] T001 Review the active feature inputs in `specs/002-review-resolution-report/spec.md`, `specs/002-review-resolution-report/plan.md`, and `specs/002-review-resolution-report/contracts/review-resolution-report.md`
-- [ ] T002 Check `git status --short` and note unrelated user changes before editing files under `internal/`, `docs/src/content/docs/`, and `skills/no-mistakes/SKILL.md`
-- [ ] T003 [P] Confirm verification commands from `specs/002-review-resolution-report/quickstart.md` for `internal/reviewreport`, `internal/db`, `internal/pipeline`, `internal/pipeline/steps`, `internal/ipc`, `internal/cli`, `internal/tui`, `internal/daemon`, and `internal/e2e`
-- [ ] T004 [P] Create implementation and fixture directories `internal/reviewreport/` and `internal/reviewreport/testdata/`
+- [X] T001 Review the active feature inputs in `specs/002-review-resolution-report/spec.md`, `specs/002-review-resolution-report/plan.md`, and `specs/002-review-resolution-report/contracts/review-resolution-report.md`
+- [X] T002 Check `git status --short` and note unrelated user changes before editing files under `internal/`, `docs/src/content/docs/`, and `skills/no-mistakes/SKILL.md`
+- [X] T003 [P] Confirm verification commands from `specs/002-review-resolution-report/quickstart.md` for `internal/reviewreport`, `internal/db`, `internal/pipeline`, `internal/pipeline/steps`, `internal/ipc`, `internal/cli`, `internal/tui`, `internal/daemon`, and `internal/e2e`
+- [X] T004 [P] Create implementation and fixture directories `internal/reviewreport/` and `internal/reviewreport/testdata/`
 
 ---
 
@@ -34,21 +34,21 @@ description: "Task list for Review Resolution Report implementation"
 
 **Critical**: No user story implementation should begin until these contracts are complete.
 
-- [ ] T005 [P] Add path helper tests for `ReportsDir`, `ReviewResolutionReportPath`, and `EnsureDirs` in `internal/paths/paths_test.go`
-- [ ] T006 Implement `ReportsDir()` and `ReviewResolutionReportPath(runID string)` and ensure reports directory creation in `internal/paths/paths.go`
-- [ ] T007 [P] Add additive migration tests for `review_resolution_reports`, `review_resolution_decisions`, and new `step_rounds` evidence columns in `internal/db/review_resolution_report_test.go`
-- [ ] T008 Add `review_resolution_reports`, `review_resolution_decisions`, `fix_commit_sha`, `no_commit_reason`, and `fix_resolution_details_json` schema/migrations in `internal/db/schema.go`
-- [ ] T009 Implement review-resolution metadata model and upsert/read/delete accessors in `internal/db/review_resolution_report.go`
-- [ ] T010 Implement Review terminal decision model and insert/query accessors in `internal/db/review_resolution_decision.go`
-- [ ] T011 Extend `StepRound`, `InsertStepRound`, `GetRoundsByStep`, and setter helpers for fix evidence fields in `internal/db/round.go`
-- [ ] T012 Add round persistence tests for fix commit, no-commit reason, structured detail JSON, and legacy `StepFixSummaries` behavior in `internal/db/round_test.go`
-- [ ] T013 [P] Add IPC round-trip tests for review-resolution metadata wire fields in `internal/ipc/protocol_test.go`
-- [ ] T014 Add `ReviewResolutionReportInfo` and optional run-level report metadata to `internal/ipc/protocol.go`
-- [ ] T015 Hydrate report metadata in daemon `runToInfo`/`stepToInfo` paths in `internal/daemon/daemon.go`
-- [ ] T016 Add daemon run-info metadata hydration tests in `internal/daemon/runinfo_test.go`
-- [ ] T017 [P] Define review report status, count, entry, decision, and refresh result structs in `internal/reviewreport/types.go`
-- [ ] T018 [P] Add field-level sanitization, truncation, secret redaction, Markdown escape, raw diff/log/transcript stripping, and code-fence tests in `internal/reviewreport/sanitize_test.go`
-- [ ] T019 Implement field-level sanitization and bounded string helpers in `internal/reviewreport/sanitize.go`
+- [X] T005 [P] Add path helper tests for `ReportsDir`, `ReviewResolutionReportPath`, and `EnsureDirs` in `internal/paths/paths_test.go`
+- [X] T006 Implement `ReportsDir()` and `ReviewResolutionReportPath(runID string)` and ensure reports directory creation in `internal/paths/paths.go`
+- [X] T007 [P] Add additive migration tests for `review_resolution_reports`, `review_resolution_decisions`, and new `step_rounds` evidence columns in `internal/db/review_resolution_report_test.go`
+- [X] T008 Add `review_resolution_reports`, `review_resolution_decisions`, `fix_commit_sha`, `no_commit_reason`, and `fix_resolution_details_json` schema/migrations in `internal/db/schema.go`
+- [X] T009 Implement review-resolution metadata model and upsert/read/delete accessors in `internal/db/review_resolution_report.go`
+- [X] T010 Implement Review terminal decision model and insert/query accessors in `internal/db/review_resolution_decision.go`
+- [X] T011 Extend `StepRound`, `InsertStepRound`, `GetRoundsByStep`, and setter helpers for fix evidence fields in `internal/db/round.go`
+- [X] T012 Add round persistence tests for fix commit, no-commit reason, structured detail JSON, and legacy `StepFixSummaries` behavior in `internal/db/round_test.go`
+- [X] T013 [P] Add IPC round-trip tests for review-resolution metadata wire fields in `internal/ipc/protocol_test.go`
+- [X] T014 Add `ReviewResolutionReportInfo` and optional run-level report metadata to `internal/ipc/protocol.go`
+- [X] T015 Hydrate report metadata in daemon `runToInfo`/`stepToInfo` paths in `internal/daemon/daemon.go`
+- [X] T016 Add daemon run-info metadata hydration tests in `internal/daemon/runinfo_test.go`
+- [X] T017 [P] Define review report status, count, entry, decision, and refresh result structs in `internal/reviewreport/types.go`
+- [X] T018 [P] Add field-level sanitization, truncation, secret redaction, Markdown escape, raw diff/log/transcript stripping, and code-fence tests in `internal/reviewreport/sanitize_test.go`
+- [X] T019 Implement field-level sanitization and bounded string helpers in `internal/reviewreport/sanitize.go`
 
 **Checkpoint**: DB/path/IPC/report primitives exist and tests can compile; user story work can proceed.
 
@@ -62,24 +62,24 @@ description: "Task list for Review Resolution Report implementation"
 
 ### Tests for User Story 1
 
-- [ ] T020 [P] [US1] Add classifier tests for mixed resolved/accepted findings, repeated same-ID findings, and exact normalized ID matching in `internal/reviewreport/classifier_test.go`
-- [ ] T021 [P] [US1] Add golden Markdown tests for required headings, field labels, counts, section order, full original finding field preservation (context, suggested/proposed fix, risk level/rationale, user instructions), and explicit `not recorded` / `unavailable in historical data` markers in `internal/reviewreport/render_test.go` and `internal/reviewreport/testdata/mixed_resolved_accepted.golden.md`
-- [ ] T022 [P] [US1] Add DB-backed refresh tests for atomic Markdown write plus metadata upsert in `internal/reviewreport/refresh_test.go`
-- [ ] T023 [P] [US1] Add executor lifecycle tests for report creation after first Review findings, refresh after fix/approve, and negative cases where Test, Lint, or Document findings do not create or refresh `review_resolution_reports` rows or Markdown reports in `internal/pipeline/executor_review_report_test.go`
-- [ ] T024 [P] [US1] Add AXI compact status/count/path rendering tests in `internal/cli/axi_render_test.go`
-- [ ] T025 [P] [US1] Add TUI compact status/count/path rendering tests in `internal/tui/pipeline_test.go`
+- [X] T020 [P] [US1] Add classifier tests for mixed resolved/accepted findings, repeated same-ID findings, and exact normalized ID matching in `internal/reviewreport/classifier_test.go`
+- [X] T021 [P] [US1] Add golden Markdown tests for required headings, field labels, counts, section order, full original finding field preservation (context, suggested/proposed fix, risk level/rationale, user instructions), and explicit `not recorded` / `unavailable in historical data` markers in `internal/reviewreport/render_test.go` and `internal/reviewreport/testdata/mixed_resolved_accepted.golden.md`
+- [X] T022 [P] [US1] Add DB-backed refresh tests for atomic Markdown write plus metadata upsert in `internal/reviewreport/refresh_test.go`
+- [X] T023 [P] [US1] Add executor lifecycle tests for report creation after first Review findings, refresh after fix/approve, and negative cases where Test, Lint, or Document findings do not create or refresh `review_resolution_reports` rows or Markdown reports in `internal/pipeline/executor_review_report_test.go`
+- [X] T024 [P] [US1] Add AXI compact status/count/path rendering tests in `internal/cli/axi_render_test.go`
+- [X] T025 [P] [US1] Add TUI compact status/count/path rendering tests in `internal/tui/pipeline_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T026 [US1] Implement Review step/run/round source loading from persisted DB records in `internal/reviewreport/source.go`
-- [ ] T027 [US1] Implement normalized finding reconciliation and resolved/accepted classification in `internal/reviewreport/classifier.go`
-- [ ] T028 [US1] Implement deterministic Markdown rendering with report format version, Run Context, Counts, Resolved Issues, Accepted Without Fix, Informational / No Action Required, and Still Open Issues in `internal/reviewreport/render.go`
-- [ ] T029 [US1] Implement atomic report refresh, content hash, source watermark, status/count metadata, and write failure propagation in `internal/reviewreport/refresh.go`
-- [ ] T030 [US1] Persist Review approve/skip decision provenance with action, actor/source, affected finding IDs, timestamp, and reason fields in `internal/pipeline/executor.go`
-- [ ] T031 [US1] Call `reviewreport.Refresh` after initial Review findings, after Review fix rounds, and after approve/skip completion in `internal/pipeline/executor.go`
-- [ ] T032 [US1] Render AXI report status, resolved/accepted/informational/still-open counts, and local path in `internal/cli/axi_render.go`
-- [ ] T033 [US1] Render TUI report status, counts, and local path in `internal/tui/pipeline.go`
-- [ ] T034 [US1] Ensure report metadata reaches AXI/TUI through `internal/daemon/daemon.go` and `internal/ipc/protocol.go`
+- [X] T026 [US1] Implement Review step/run/round source loading from persisted DB records in `internal/reviewreport/source.go`
+- [X] T027 [US1] Implement normalized finding reconciliation and resolved/accepted classification in `internal/reviewreport/classifier.go`
+- [X] T028 [US1] Implement deterministic Markdown rendering with report format version, Run Context, Counts, Resolved Issues, Accepted Without Fix, Informational / No Action Required, and Still Open Issues in `internal/reviewreport/render.go`
+- [X] T029 [US1] Implement atomic report refresh, content hash, source watermark, status/count metadata, and write failure propagation in `internal/reviewreport/refresh.go`
+- [X] T030 [US1] Persist Review approve/skip decision provenance with action, actor/source, affected finding IDs, timestamp, and reason fields in `internal/pipeline/executor.go`
+- [X] T031 [US1] Call `reviewreport.Refresh` after initial Review findings, after Review fix rounds, and after approve/skip completion in `internal/pipeline/executor.go`
+- [X] T032 [US1] Render AXI report status, resolved/accepted/informational/still-open counts, and local path in `internal/cli/axi_render.go`
+- [X] T033 [US1] Render TUI report status, counts, and local path in `internal/tui/pipeline.go`
+- [X] T034 [US1] Ensure report metadata reaches AXI/TUI through `internal/daemon/daemon.go` and `internal/ipc/protocol.go`
 
 **Checkpoint**: US1 is independently demonstrable with a mixed fixed/approved Review run.
 
@@ -93,20 +93,20 @@ description: "Task list for Review Resolution Report implementation"
 
 ### Tests for User Story 2
 
-- [ ] T035 [P] [US2] Add classifier tests for abort, failure, canceled, superseded, verification-inconclusive, and still-open outcomes in `internal/reviewreport/classifier_test.go`
-- [ ] T036 [P] [US2] Add status transition tests for `incomplete`, `stale`, `degraded`, and `evidence_unavailable` in `internal/reviewreport/refresh_test.go`
-- [ ] T037 [P] [US2] Add executor tests for abort/failure report refresh and required write failure behavior in `internal/pipeline/executor_review_report_test.go`
-- [ ] T038 [P] [US2] Add daemon cancellation and stale-run recovery tests for report reconciliation in `internal/daemon/manager_test.go`
-- [ ] T039 [P] [US2] Add no-commit evidence tests for no-op, no changes, failed commit, and missing evidence in `internal/pipeline/steps/common_fix_test.go`
+- [X] T035 [P] [US2] Add classifier tests for abort, failure, canceled, superseded, verification-inconclusive, and still-open outcomes in `internal/reviewreport/classifier_test.go`
+- [X] T036 [P] [US2] Add status transition tests for `incomplete`, `stale`, `degraded`, and `evidence_unavailable` in `internal/reviewreport/refresh_test.go`
+- [X] T037 [P] [US2] Add executor tests for abort/failure report refresh and required write failure behavior in `internal/pipeline/executor_review_report_test.go`
+- [X] T038 [P] [US2] Add daemon cancellation and stale-run recovery tests for report reconciliation in `internal/daemon/manager_test.go`
+- [X] T039 [P] [US2] Add no-commit evidence tests for no-op, no changes, failed commit, and missing evidence in `internal/pipeline/steps/common_fix_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T040 [US2] Persist abort/failure decision and evidence state for Review findings in `internal/pipeline/executor.go`
-- [ ] T041 [US2] Reconcile reports when runs become failed, cancelled, superseded, or stale-recovered in `internal/pipeline/executor.go` and `internal/daemon/manager.go`
-- [ ] T042 [US2] Extend fix commit handling to distinguish no-op, no changes, failed commit, and missing evidence in `internal/pipeline/steps/common_fix.go`
-- [ ] T043 [US2] Persist `fix_commit_sha` and `no_commit_reason` on fix rounds through `internal/pipeline/pipeline.go`, `internal/pipeline/executor.go`, and `internal/db/round.go`
-- [ ] T044 [US2] Implement stale/degraded/evidence-unavailable integrity checks for missing Markdown, hash mismatch, source watermark drift, and partial refreshes in `internal/reviewreport/refresh.go`
-- [ ] T045 [US2] Render non-success wording whenever status is incomplete/stale/degraded/evidence-unavailable or still-open count is nonzero in `internal/cli/axi_render.go` and `internal/tui/pipeline.go`
+- [X] T040 [US2] Persist abort/failure decision and evidence state for Review findings in `internal/pipeline/executor.go`
+- [X] T041 [US2] Reconcile reports when runs become failed, cancelled, superseded, or stale-recovered in `internal/pipeline/executor.go` and `internal/daemon/manager.go`
+- [X] T042 [US2] Extend fix commit handling to distinguish no-op, no changes, failed commit, and missing evidence in `internal/pipeline/steps/common_fix.go`
+- [X] T043 [US2] Persist `fix_commit_sha` and `no_commit_reason` on fix rounds through `internal/pipeline/pipeline.go`, `internal/pipeline/executor.go`, and `internal/db/round.go`
+- [X] T044 [US2] Implement stale/degraded/evidence-unavailable integrity checks for missing Markdown, hash mismatch, source watermark drift, and partial refreshes in `internal/reviewreport/refresh.go`
+- [X] T045 [US2] Render non-success wording whenever status is incomplete/stale/degraded/evidence-unavailable or still-open count is nonzero in `internal/cli/axi_render.go` and `internal/tui/pipeline.go`
 
 **Checkpoint**: US2 is independently demonstrable with aborted and failed Review runs that never misclassify unresolved findings as accepted.
 
@@ -120,19 +120,19 @@ description: "Task list for Review Resolution Report implementation"
 
 ### Tests for User Story 3
 
-- [ ] T046 [P] [US3] Add fix detail validation tests for required fields, duplicate IDs, unknown IDs, missing selected IDs, changed files, and per-field caps in `internal/reviewreport/fixdetail_test.go`
-- [ ] T047 [P] [US3] Add Review fix schema and backward-compatible prompt tests in `internal/pipeline/steps/review_test.go`
-- [ ] T048 [P] [US3] Add structured-resolution and legacy-summary golden tests in `internal/reviewreport/render_test.go` and `internal/reviewreport/testdata/structured_resolution.golden.md`
-- [ ] T049 [P] [US3] Add diff-derived fallback privacy tests for raw hunks, code snippets, secret literals, and near-verbatim code excerpts in `internal/reviewreport/sanitize_test.go`
+- [X] T046 [P] [US3] Add fix detail validation tests for required fields, duplicate IDs, unknown IDs, missing selected IDs, changed files, and per-field caps in `internal/reviewreport/fixdetail_test.go`
+- [X] T047 [P] [US3] Add Review fix schema and backward-compatible prompt tests in `internal/pipeline/steps/review_test.go`
+- [X] T048 [P] [US3] Add structured-resolution and legacy-summary golden tests in `internal/reviewreport/render_test.go` and `internal/reviewreport/testdata/structured_resolution.golden.md`
+- [X] T049 [P] [US3] Add diff-derived fallback privacy tests for raw hunks, code snippets, secret literals, and near-verbatim code excerpts in `internal/reviewreport/sanitize_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T050 [US3] Extend the Review fix JSON schema and prompt to accept `summary` plus optional `resolutions[]` in `internal/pipeline/steps/review.go` and `internal/pipeline/steps/common_fix.go`
-- [ ] T051 [US3] Parse, validate, sanitize, and classify optional structured fix resolution details in `internal/reviewreport/fixdetail.go` and `internal/pipeline/steps/common_fix.go`
-- [ ] T052 [US3] Add fix detail, fix commit, and no-commit evidence fields to `StepOutcome` and pass them through executor round persistence in `internal/pipeline/pipeline.go` and `internal/pipeline/executor.go`
-- [ ] T053 [US3] Apply validated structured resolution details to matching report entries only when tied to persisted fix-round evidence in `internal/reviewreport/classifier.go`
-- [ ] T054 [US3] Implement high-level sanitized diff/commit fallback summaries and changed-file labels in `internal/reviewreport/fallback.go`
-- [ ] T055 [US3] Label structured, inferred, round-level, commit-level, degraded, unavailable, attempted, and not-applied evidence explicitly in `internal/reviewreport/render.go`
+- [X] T050 [US3] Extend the Review fix JSON schema and prompt to accept `summary` plus optional `resolutions[]` in `internal/pipeline/steps/review.go` and `internal/pipeline/steps/common_fix.go`
+- [X] T051 [US3] Parse, validate, sanitize, and classify optional structured fix resolution details in `internal/reviewreport/fixdetail.go` and `internal/pipeline/steps/common_fix.go`
+- [X] T052 [US3] Add fix detail, fix commit, and no-commit evidence fields to `StepOutcome` and pass them through executor round persistence in `internal/pipeline/pipeline.go` and `internal/pipeline/executor.go`
+- [X] T053 [US3] Apply validated structured resolution details to matching report entries only when tied to persisted fix-round evidence in `internal/reviewreport/classifier.go`
+- [X] T054 [US3] Implement high-level sanitized diff/commit fallback summaries and changed-file labels in `internal/reviewreport/fallback.go`
+- [X] T055 [US3] Label structured, inferred, round-level, commit-level, degraded, unavailable, attempted, and not-applied evidence explicitly in `internal/reviewreport/render.go`
 
 **Checkpoint**: US3 is independently demonstrable with structured and legacy fake-agent Review fix outputs.
 
@@ -146,16 +146,16 @@ description: "Task list for Review Resolution Report implementation"
 
 ### Tests for User Story 4
 
-- [ ] T056 [P] [US4] Add PR summary tests for compact report metadata rendering, omit-when-absent behavior, and non-success wording in `internal/pipeline/steps/prsummary_test.go`
-- [ ] T057 [P] [US4] Add PR and push/evidence staging tests for pre-summary reconciliation, local-path privacy, and proving review-resolution reports stay under `$NM_HOME` metadata paths and are never staged or force-added from a repo-local `no-mistakes/<branch-slug>/review-resolution.md` path in `internal/pipeline/steps/pr_test.go` and `internal/pipeline/steps/push_test.go`
-- [ ] T058 [P] [US4] Add clean-run omission tests for IPC/AXI report metadata in `internal/ipc/protocol_test.go` and `internal/cli/axi_render_test.go`
+- [X] T056 [P] [US4] Add PR summary tests for compact report metadata rendering, omit-when-absent behavior, and non-success wording in `internal/pipeline/steps/prsummary_test.go`
+- [X] T057 [P] [US4] Add PR and push/evidence staging tests for pre-summary reconciliation, local-path privacy, and proving review-resolution reports stay under `$NM_HOME` metadata paths and are never staged or force-added from a repo-local `no-mistakes/<branch-slug>/review-resolution.md` path in `internal/pipeline/steps/pr_test.go` and `internal/pipeline/steps/push_test.go`
+- [X] T058 [P] [US4] Add clean-run omission tests for IPC/AXI report metadata in `internal/ipc/protocol_test.go` and `internal/cli/axi_render_test.go`
 
 ### Implementation for User Story 4
 
-- [ ] T059 [US4] Reconcile review report metadata before PR summary generation uses it in `internal/pipeline/steps/pr.go`
-- [ ] T060 [US4] Add compact `Review resolution` status/count rendering to the generated `## Pipeline` section in `internal/pipeline/steps/prsummary.go`
-- [ ] T061 [US4] Prevent `$NM_HOME`, absolute local paths, `review-resolution.md` local paths, report excerpts, and generated GitHub blob links from PR content in `internal/pipeline/steps/prsummary.go` and `internal/pipeline/steps/pr.go`
-- [ ] T062 [US4] Omit review-resolution status entirely for clean Review runs and runs without report metadata in `internal/pipeline/steps/prsummary.go`
+- [X] T059 [US4] Reconcile review report metadata before PR summary generation uses it in `internal/pipeline/steps/pr.go`
+- [X] T060 [US4] Add compact `Review resolution` status/count rendering to the generated `## Pipeline` section in `internal/pipeline/steps/prsummary.go`
+- [X] T061 [US4] Prevent `$NM_HOME`, absolute local paths, `review-resolution.md` local paths, report excerpts, and generated GitHub blob links from PR content in `internal/pipeline/steps/prsummary.go` and `internal/pipeline/steps/pr.go`
+- [X] T062 [US4] Omit review-resolution status entirely for clean Review runs and runs without report metadata in `internal/pipeline/steps/prsummary.go`
 
 **Checkpoint**: US4 is independently demonstrable with PR body fixtures for report-present and report-absent runs.
 
@@ -165,15 +165,15 @@ description: "Task list for Review Resolution Report implementation"
 
 **Purpose**: End-to-end validation, docs, generated skill updates, and full repository checks.
 
-- [ ] T063 [P] Add E2E mixed resolved/accepted and clean Review scenarios in `internal/e2e/review_resolution_test.go`
-- [ ] T064 [P] Add E2E aborted unresolved, structured `resolutions[]`, legacy `summary`, and AXI detail scenarios in `internal/e2e/review_resolution_test.go`
-- [ ] T065 [P] Update Review, Auto-Fix, pipeline, and gate model docs in `docs/src/content/docs/reference/pipeline-steps.md`, `docs/src/content/docs/concepts/auto-fix.md`, `docs/src/content/docs/concepts/pipeline.md`, and `docs/src/content/docs/concepts/gate-model.md`
-- [ ] T066 [P] Update TUI, AXI, PR, and local state docs in `docs/src/content/docs/guides/tui.md`, `docs/src/content/docs/reference/cli.md`, and `docs/src/content/docs/concepts/daemon.md`
-- [ ] T067 Regenerate generated agent guidance in `skills/no-mistakes/SKILL.md` using `make skill`
-- [ ] T068 Run `gofmt` on changed files under `internal/reviewreport/`, `internal/db/`, `internal/paths/`, `internal/pipeline/`, `internal/ipc/`, `internal/cli/`, `internal/tui/`, and `internal/daemon/`
-- [ ] T069 Run targeted tests for `./internal/reviewreport`, `./internal/db`, `./internal/paths`, `./internal/pipeline`, `./internal/pipeline/steps`, `./internal/ipc`, `./internal/cli`, `./internal/tui`, and `./internal/daemon`
-- [ ] T070 Run E2E tests for `./internal/e2e` with `go test -tags=e2e ./internal/e2e -run 'ReviewResolution|Axi'`
-- [ ] T071 Run full validation for repository paths `internal/`, `cmd/`, `docs/src/content/docs/`, and `skills/no-mistakes/SKILL.md` with `go test -race ./...`, `make lint`, and `make skill`
+- [X] T063 [P] Add E2E mixed resolved/accepted and clean Review scenarios in `internal/e2e/review_resolution_test.go`
+- [X] T064 [P] Add E2E aborted unresolved, structured `resolutions[]`, legacy `summary`, and AXI detail scenarios in `internal/e2e/review_resolution_test.go`
+- [X] T065 [P] Update Review, Auto-Fix, pipeline, and gate model docs in `docs/src/content/docs/reference/pipeline-steps.md`, `docs/src/content/docs/concepts/auto-fix.md`, `docs/src/content/docs/concepts/pipeline.md`, and `docs/src/content/docs/concepts/gate-model.md`
+- [X] T066 [P] Update TUI, AXI, PR, and local state docs in `docs/src/content/docs/guides/tui.md`, `docs/src/content/docs/reference/cli.md`, and `docs/src/content/docs/concepts/daemon.md`
+- [X] T067 Regenerate generated agent guidance in `skills/no-mistakes/SKILL.md` using `make skill`
+- [X] T068 Run `gofmt` on changed files under `internal/reviewreport/`, `internal/db/`, `internal/paths/`, `internal/pipeline/`, `internal/ipc/`, `internal/cli/`, `internal/tui/`, and `internal/daemon/`
+- [X] T069 Run targeted tests for `./internal/reviewreport`, `./internal/db`, `./internal/paths`, `./internal/pipeline`, `./internal/pipeline/steps`, `./internal/ipc`, `./internal/cli`, `./internal/tui`, and `./internal/daemon`
+- [X] T070 Run E2E tests for `./internal/e2e` with `go test -tags=e2e ./internal/e2e -run 'ReviewResolution|Axi'`
+- [X] T071 Run full validation for repository paths `internal/`, `cmd/`, `docs/src/content/docs/`, and `skills/no-mistakes/SKILL.md` with `go test -race ./...`, `make lint`, and `make skill`
 
 ---
 

@@ -14,6 +14,8 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/agent"
 	"github.com/kunchenguid/no-mistakes/internal/config"
+	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -293,6 +295,64 @@ func TestPRStep_CreatesNewPR(t *testing.T) {
 	}
 	if run.PRURL == nil || *run.PRURL != "https://github.com/test/repo/pull/99" {
 		t.Errorf("PR URL = %v, want https://github.com/test/repo/pull/99", run.PRURL)
+	}
+}
+
+func TestPRStepBuildPipelineSectionRefreshesReviewResolutionBeforeSummary(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Paths = paths.WithRoot(t.TempDir())
+
+	reviewStep, err := sctx.DB.InsertStepResult(sctx.Run.ID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := `{"findings":[{"id":"review-1","severity":"warning","description":"accepted risk","action":"ask-user"}],"summary":"1 finding"}`
+	round, err := sctx.DB.InsertStepRound(reviewStep.ID, 1, "initial", &findings, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := "accepted by reviewer"
+	roundID := round.ID
+	if _, err := sctx.DB.InsertReviewResolutionDecision(db.ReviewResolutionDecision{
+		RunID:        sctx.Run.ID,
+		StepResultID: reviewStep.ID,
+		RoundID:      &roundID,
+		FindingID:    "review-1",
+		Action:       db.ReviewResolutionDecisionApprove,
+		ActorSource:  "user",
+		Reason:       &reason,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sctx.DB.UpdateStepStatus(reviewStep.ID, types.StepStatusCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := sctx.DB.UpdateRunStatus(sctx.Run.ID, types.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := sctx.DB.GetReviewResolutionReport(sctx.Run.ID); err != nil || report != nil {
+		t.Fatalf("precondition report = %+v, err = %v; want absent", report, err)
+	}
+
+	pipelineMD, _, _ := (&PRStep{}).buildPipelineSection(sctx)
+
+	report, err := sctx.DB.GetReviewResolutionReport(sctx.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report == nil {
+		t.Fatal("expected PR summary build to refresh review resolution metadata")
+	}
+	if !strings.Contains(pipelineMD, "Review resolution: final; 0 resolved, 1 accepted without fix, 0 informational, 0 still open.") {
+		t.Fatalf("missing refreshed review resolution summary:\n%s", pipelineMD)
+	}
+	for _, forbidden := range []string{"review-resolution.md", sctx.Paths.Root()} {
+		if strings.Contains(pipelineMD, forbidden) {
+			t.Fatalf("PR pipeline summary leaked local report detail %q:\n%s", forbidden, pipelineMD)
+		}
 	}
 }
 

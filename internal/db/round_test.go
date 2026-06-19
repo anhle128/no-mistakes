@@ -64,6 +64,33 @@ func TestStepRoundNullFindings(t *testing.T) {
 	}
 }
 
+func TestStepRoundNoCommitEvidence(t *testing.T) {
+	d := openTestDB(t)
+	repo, _ := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
+	run, _ := d.InsertRun(repo.ID, "feature", "abc", "def")
+	step, _ := d.InsertStepResult(run.ID, types.StepReview)
+
+	summary := "attempted fix"
+	reason := "no_changes"
+	details := `{"summary":"attempted fix","degraded":["no commit produced"]}`
+	if _, err := d.InsertStepRoundWithEvidence(step.ID, 1, "auto_fix", nil, &summary, nil, &reason, &details, 100); err != nil {
+		t.Fatalf("insert round evidence: %v", err)
+	}
+	rounds, err := d.GetRoundsByStep(step.ID)
+	if err != nil {
+		t.Fatalf("get rounds: %v", err)
+	}
+	if len(rounds) != 1 {
+		t.Fatalf("got %d rounds, want 1", len(rounds))
+	}
+	if rounds[0].NoCommitReason == nil || *rounds[0].NoCommitReason != reason {
+		t.Fatalf("no_commit_reason = %v, want %q", rounds[0].NoCommitReason, reason)
+	}
+	if rounds[0].FixResolutionDetailsJSON == nil || *rounds[0].FixResolutionDetailsJSON != details {
+		t.Fatalf("fix_resolution_details_json = %v, want %q", rounds[0].FixResolutionDetailsJSON, details)
+	}
+}
+
 func TestGetRoundsByStep(t *testing.T) {
 	d := openTestDB(t)
 	repo, _ := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
