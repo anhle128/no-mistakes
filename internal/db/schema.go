@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS runs (
     review_base_refresh_attempted INTEGER NOT NULL DEFAULT 0,
     review_base_refresh_error     TEXT,
     rejection_reason              TEXT,
+    skip_steps                    TEXT,
     created_at                    INTEGER NOT NULL,
     updated_at                    INTEGER NOT NULL
 );
@@ -166,4 +167,5 @@ var migrationStatements = []string{
 	`ALTER TABLE runs ADD COLUMN review_base_refresh_attempted INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE runs ADD COLUMN review_base_refresh_error TEXT`,
 	`ALTER TABLE runs ADD COLUMN rejection_reason TEXT`,
+	`ALTER TABLE runs ADD COLUMN skip_steps TEXT`,
 }

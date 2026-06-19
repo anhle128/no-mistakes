@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/kunchenguid/no-mistakes/internal/types"
@@ -28,6 +29,7 @@ type Run struct {
 	ReviewBaseRefreshAttempted bool
 	ReviewBaseRefreshError     *string
 	RejectionReason            *string
+	SkipSteps                  []types.StepName
 	Intent                     *string
 	IntentSource               *string
 	IntentSessionID            *string
@@ -36,22 +38,28 @@ type Run struct {
 	UpdatedAt                  int64
 }
 
-const runColumns = `id, repo_id, branch, head_sha, base_sha, status, pr_url, error, worktree_mode, work_dir, work_dir_label, current_worktree_warning, metadata_availability, evidence_state, terminal_reason, review_base_ref, review_base_refresh_attempted, review_base_refresh_error, rejection_reason, intent, intent_source, intent_session_id, intent_score, created_at, updated_at`
+const runColumns = `id, repo_id, branch, head_sha, base_sha, status, pr_url, error, worktree_mode, work_dir, work_dir_label, current_worktree_warning, metadata_availability, evidence_state, terminal_reason, review_base_ref, review_base_refresh_attempted, review_base_refresh_error, rejection_reason, skip_steps, intent, intent_source, intent_session_id, intent_score, created_at, updated_at`
 
 func scanRun(row interface {
 	Scan(...any) error
 }, r *Run) error {
 	var refreshAttempted int
+	var skipStepsJSON *string
 	if err := row.Scan(
 		&r.ID, &r.RepoID, &r.Branch, &r.HeadSHA, &r.BaseSHA, &r.Status,
 		&r.PRURL, &r.Error,
 		&r.WorktreeMode, &r.WorkDir, &r.WorkDirLabel, &r.CurrentWorktreeWarning,
 		&r.MetadataAvailability, &r.EvidenceState, &r.TerminalReason,
 		&r.ReviewBaseRef, &refreshAttempted, &r.ReviewBaseRefreshError, &r.RejectionReason,
-		&r.Intent, &r.IntentSource, &r.IntentSessionID, &r.IntentScore,
+		&skipStepsJSON, &r.Intent, &r.IntentSource, &r.IntentSessionID, &r.IntentScore,
 		&r.CreatedAt, &r.UpdatedAt,
 	); err != nil {
 		return err
+	}
+	if skipStepsJSON != nil && *skipStepsJSON != "" {
+		if err := json.Unmarshal([]byte(*skipStepsJSON), &r.SkipSteps); err != nil {
+			return fmt.Errorf("decode run skip steps: %w", err)
+		}
 	}
 	r.WorktreeMode = types.NormalizeWorktreeMode(r.WorktreeMode)
 	r.MetadataAvailability = types.NormalizeMetadataAvailability(r.MetadataAvailability)
@@ -73,6 +81,7 @@ type RunInsertOptions struct {
 	ReviewBaseRefreshAttempted bool
 	ReviewBaseRefreshError     string
 	RejectionReason            string
+	SkipSteps                  []types.StepName
 }
 
 // InsertRun creates a new run record.
@@ -99,6 +108,10 @@ func (d *DB) InsertRunWithOptions(repoID, branch, headSHA, baseSHA string, opts 
 	reviewBaseRef := stringPtrOrNil(opts.ReviewBaseRef)
 	reviewBaseRefreshError := stringPtrOrNil(opts.ReviewBaseRefreshError)
 	rejectionReason := stringPtrOrNil(opts.RejectionReason)
+	skipStepsJSON, err := skipStepsJSONString(opts.SkipSteps)
+	if err != nil {
+		return nil, err
+	}
 	r := &Run{
 		ID:                         newID(),
 		RepoID:                     repoID,
@@ -116,15 +129,17 @@ func (d *DB) InsertRunWithOptions(repoID, branch, headSHA, baseSHA string, opts 
 		ReviewBaseRefreshAttempted: opts.ReviewBaseRefreshAttempted,
 		ReviewBaseRefreshError:     reviewBaseRefreshError,
 		RejectionReason:            rejectionReason,
+		SkipSteps:                  append([]types.StepName(nil), opts.SkipSteps...),
 		CreatedAt:                  ts,
 		UpdatedAt:                  ts,
 	}
-	_, err := d.sql.Exec(
-		`INSERT INTO runs (id, repo_id, branch, head_sha, base_sha, status, worktree_mode, work_dir, work_dir_label, current_worktree_warning, metadata_availability, evidence_state, review_base_ref, review_base_refresh_attempted, review_base_refresh_error, rejection_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = d.sql.Exec(
+		`INSERT INTO runs (id, repo_id, branch, head_sha, base_sha, status, worktree_mode, work_dir, work_dir_label, current_worktree_warning, metadata_availability, evidence_state, review_base_ref, review_base_refresh_attempted, review_base_refresh_error, rejection_reason, skip_steps, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.RepoID, r.Branch, r.HeadSHA, r.BaseSHA, r.Status,
 		r.WorktreeMode, r.WorkDir, r.WorkDirLabel, r.CurrentWorktreeWarning,
 		r.MetadataAvailability, r.EvidenceState,
 		r.ReviewBaseRef, boolToInt(r.ReviewBaseRefreshAttempted), r.ReviewBaseRefreshError, r.RejectionReason,
+		skipStepsJSON,
 		r.CreatedAt, r.UpdatedAt,
 	)
 	if err != nil {
@@ -138,6 +153,18 @@ func stringPtrOrNil(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func skipStepsJSONString(steps []types.StepName) (*string, error) {
+	if len(steps) == 0 {
+		return nil, nil
+	}
+	raw, err := json.Marshal(steps)
+	if err != nil {
+		return nil, fmt.Errorf("encode run skip steps: %w", err)
+	}
+	encoded := string(raw)
+	return &encoded, nil
 }
 
 func boolToInt(v bool) int {

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -120,6 +121,57 @@ func TestRootSkipPassesStepsToWizard(t *testing.T) {
 	want := []types.StepName{types.StepTest, types.StepLint}
 	if !reflect.DeepEqual(gotSkip, want) {
 		t.Fatalf("skip steps = %v, want %v", gotSkip, want)
+	}
+}
+
+func TestRootCurrentWorktreeYoloRequiresIntentBeforeRunCreation(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	run(t, repoDir, "git", "branch", "-M", "main")
+	run(t, repoDir, "git", "push", "-u", "origin", "main")
+	run(t, repoDir, "git", "checkout", "-b", "feature/current")
+	if err := os.WriteFile("current.txt", []byte("current change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repoDir, "git", "add", "current.txt")
+	run(t, repoDir, "git", "commit", "-m", "add current change")
+
+	p := paths.WithRoot(os.Getenv("NM_HOME"))
+	d, err := db.Open(p.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	if _, _, err := gate.Init(context.Background(), d, p, "."); err != nil {
+		t.Fatal(err)
+	}
+	startTestDaemon(t, p, d)
+
+	gitRoot, err := git.FindGitRoot(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := d.GetRepoByPath(gitRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo == nil {
+		t.Fatal("expected initialized repo")
+	}
+
+	_, err = executeCmd("--no-worktree", "--yolo")
+	if err == nil {
+		t.Fatal("expected current-worktree root start without intent to fail")
+	}
+	if !strings.Contains(err.Error(), "--intent") {
+		t.Fatalf("error = %v, want --intent guidance", err)
+	}
+	runs, err := d.GetRunsByRepo(repo.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("missing intent rejection should not create a run, got %d", len(runs))
 	}
 }
 

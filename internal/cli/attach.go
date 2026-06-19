@@ -169,7 +169,7 @@ func attachCurrentWorktreeRun(ctx context.Context, w io.Writer, autoYes bool, sk
 	if err != nil {
 		return fmt.Errorf("get current HEAD: %w", err)
 	}
-	runID, err := ensureCurrentWorktreeRun(ctx, env, branch, headSHA, skipSteps, "", false)
+	runID, err := ensureCurrentWorktreeRun(ctx, env, branch, headSHA, skipSteps, "", true)
 	if err != nil {
 		return err
 	}

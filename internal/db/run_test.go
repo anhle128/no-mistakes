@@ -57,6 +57,7 @@ func TestRunInsertWithCurrentWorktreeMetadata(t *testing.T) {
 		ReviewBaseRef:              "origin/main",
 		ReviewBaseRefreshAttempted: true,
 		ReviewBaseRefreshError:     "network down",
+		SkipSteps:                  []types.StepName{types.StepReview, types.StepLint},
 	})
 	if err != nil {
 		t.Fatalf("insert current run: %v", err)
@@ -85,6 +86,9 @@ func TestRunInsertWithCurrentWorktreeMetadata(t *testing.T) {
 	}
 	if got.ReviewBaseRefreshError == nil || *got.ReviewBaseRefreshError != "network down" {
 		t.Fatalf("review base refresh error = %v, want network down", got.ReviewBaseRefreshError)
+	}
+	if len(got.SkipSteps) != 2 || got.SkipSteps[0] != types.StepReview || got.SkipSteps[1] != types.StepLint {
+		t.Fatalf("skip steps = %v, want [review lint]", got.SkipSteps)
 	}
 }
 

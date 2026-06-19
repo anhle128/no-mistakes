@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -273,14 +274,17 @@ func (m *RunManager) HandleStartRun(ctx context.Context, params *ipc.StartRunPar
 	startParams := *params
 	startParams.WorktreeMode = mode
 	if mode == types.WorktreeModeCurrent {
-		runID, resumed, err := m.tryResumeCurrentRun(ctx, repo, &startParams)
-		if err != nil || resumed {
-			return runID, resumed, err
-		}
 		if startParams.RequireIntent && strings.TrimSpace(startParams.Intent) == "" {
 			return "", false, currentStartError("--intent is required to start a run", types.RejectionMissingIntent, `Pass what the user set out to accomplish: no-mistakes axi run --intent "the user's goal"`)
 		}
 		if err := prepareCurrentStartParams(ctx, repo, &startParams); err != nil {
+			return "", false, err
+		}
+		runID, resumed, err := m.tryResumeCurrentRun(repo, &startParams)
+		if err != nil || resumed {
+			return runID, resumed, err
+		}
+		if err := ensureCurrentWorktreeClean(ctx, startParams.WorkDir); err != nil {
 			return "", false, err
 		}
 	}
@@ -299,23 +303,10 @@ func (m *RunManager) HandleStartRun(ctx context.Context, params *ipc.StartRunPar
 	})
 }
 
-func (m *RunManager) tryResumeCurrentRun(ctx context.Context, repo *db.Repo, params *ipc.StartRunParams) (string, bool, error) {
-	rawWorkDir := strings.TrimSpace(params.WorkDir)
-	if rawWorkDir == "" || !filepath.IsAbs(rawWorkDir) {
-		return "", false, nil
-	}
-	workDir, err := git.CurrentWorktreeRoot(ctx, rawWorkDir)
-	if err != nil {
-		return "", false, nil
-	}
-	if err := verifyCurrentWorktreeRepo(repo, workDir); err != nil {
-		return "", false, err
-	}
-	branch, err := git.CurrentBranch(ctx, workDir)
-	if err != nil || branch == "HEAD" {
-		return "", false, nil
-	}
-	if requested := strings.TrimSpace(params.Branch); requested != "" && requested != branch {
+func (m *RunManager) tryResumeCurrentRun(repo *db.Repo, params *ipc.StartRunParams) (string, bool, error) {
+	branch := strings.TrimSpace(params.Branch)
+	workDir := strings.TrimSpace(params.WorkDir)
+	if branch == "" || workDir == "" {
 		return "", false, nil
 	}
 	active, err := m.db.GetActiveRun(repo.ID, branch)
@@ -325,7 +316,7 @@ func (m *RunManager) tryResumeCurrentRun(ctx context.Context, repo *db.Repo, par
 	if active == nil {
 		return "", false, nil
 	}
-	if len(params.SkipSteps) == 0 && currentStartResumeCompatible(active, params.HeadSHA, params.BaseSHA, workDir, params.Intent) {
+	if currentStartResumeCompatible(active, params) {
 		return active.ID, true, nil
 	}
 	return "", false, activeRunConflict(active, types.WorktreeModeCurrent, params.HeadSHA, safeWorkDirLabel(workDir))
@@ -366,13 +357,6 @@ func prepareCurrentStartParams(ctx context.Context, repo *db.Repo, params *ipc.S
 	if requested := strings.TrimSpace(params.HeadSHA); requested != "" && requested != headSHA {
 		return currentStartError("requested head does not match current HEAD", types.RejectionActiveRunConflict, "Retry after refreshing the current branch state")
 	}
-	dirty, err := git.HasCommittedWorktreeDirt(ctx, workDir)
-	if err != nil {
-		return currentStartError(fmt.Sprintf("inspect current worktree: %v", err), types.RejectionDirtyWorktree, "Run git status, then retry")
-	}
-	if dirty {
-		return currentStartError("current worktree is not clean", types.RejectionDirtyWorktree, "Commit or remove tracked changes and untracked non-ignored files, then retry")
-	}
 	remoteName := currentModeRemoteName(ctx, workDir, repo.UpstreamURL)
 	base, err := git.ResolveCurrentReviewBase(ctx, workDir, remoteName, repo.DefaultBranch)
 	if err != nil {
@@ -388,6 +372,17 @@ func prepareCurrentStartParams(ctx context.Context, repo *db.Repo, params *ipc.S
 	params.ReviewBaseRef = base.Ref
 	params.ReviewBaseRefreshAttempted = base.RefreshAttempted
 	params.ReviewBaseRefreshError = base.RefreshError
+	return nil
+}
+
+func ensureCurrentWorktreeClean(ctx context.Context, workDir string) error {
+	dirty, err := git.HasCommittedWorktreeDirt(ctx, workDir)
+	if err != nil {
+		return currentStartError(fmt.Sprintf("inspect current worktree: %v", err), types.RejectionDirtyWorktree, "Run git status, then retry")
+	}
+	if dirty {
+		return currentStartError("current worktree is not clean", types.RejectionDirtyWorktree, "Commit or remove tracked changes and untracked non-ignored files, then retry")
+	}
 	return nil
 }
 
@@ -488,7 +483,7 @@ func (m *RunManager) startRunWithOptions(ctx context.Context, repo *db.Repo, bra
 			return "", false, fmt.Errorf("get active run: %w", err)
 		}
 		if active != nil {
-			if len(opts.skipSteps) == 0 && currentStartCompatible(active, headSHA, baseSHA, opts.workDir, opts.intent) {
+			if currentStartCompatible(active, headSHA, baseSHA, opts.workDir, opts.intent, opts.reviewBaseRef, opts.skipSteps) {
 				return active.ID, true, nil
 			}
 			trackStartFailure("active_run_conflict")
@@ -517,6 +512,7 @@ func (m *RunManager) startRunWithOptions(ctx context.Context, repo *db.Repo, bra
 		ReviewBaseRef:              opts.reviewBaseRef,
 		ReviewBaseRefreshAttempted: opts.reviewBaseRefreshAttempted,
 		ReviewBaseRefreshError:     opts.reviewBaseRefreshError,
+		SkipSteps:                  opts.skipSteps,
 	})
 	if err != nil {
 		trackStartFailure("create_run")
@@ -735,7 +731,7 @@ func (m *RunManager) startRunWithOptions(ctx context.Context, repo *db.Repo, bra
 	return run.ID, false, nil
 }
 
-func currentStartCompatible(active *db.Run, headSHA, baseSHA, workDir, intent string) bool {
+func currentStartCompatible(active *db.Run, headSHA, baseSHA, workDir, intent, reviewBaseRef string, skipSteps []types.StepName) bool {
 	if active == nil {
 		return false
 	}
@@ -748,38 +744,96 @@ func currentStartCompatible(active *db.Run, headSHA, baseSHA, workDir, intent st
 	if active.WorkDir == nil || *active.WorkDir != workDir {
 		return false
 	}
-	requestedIntent := strings.TrimSpace(intent)
-	if requestedIntent != "" {
-		if active.Intent == nil || strings.TrimSpace(*active.Intent) != requestedIntent {
-			return false
-		}
+	if trimStringPtr(active.ReviewBaseRef) != strings.TrimSpace(reviewBaseRef) {
+		return false
+	}
+	if trimStringPtr(active.Intent) != strings.TrimSpace(intent) {
+		return false
+	}
+	if !sameStepSet(active.SkipSteps, skipSteps) {
+		return false
 	}
 	return true
 }
 
-func currentStartResumeCompatible(active *db.Run, headSHA, baseSHA, workDir, intent string) bool {
+func currentStartResumeCompatible(active *db.Run, params *ipc.StartRunParams) bool {
 	if active == nil {
 		return false
 	}
 	if types.NormalizeWorktreeMode(active.WorktreeMode) != types.WorktreeModeCurrent {
 		return false
 	}
-	if strings.TrimSpace(headSHA) == "" || active.HeadSHA != headSHA {
+	headSHA := strings.TrimSpace(params.HeadSHA)
+	baseSHA := strings.TrimSpace(params.BaseSHA)
+	if headSHA == "" || active.HeadSHA != headSHA {
 		return false
 	}
-	if strings.TrimSpace(baseSHA) != "" && active.BaseSHA != baseSHA {
+	if baseSHA == "" || active.BaseSHA != baseSHA {
 		return false
 	}
-	if active.WorkDir == nil || *active.WorkDir != workDir {
+	if active.WorkDir == nil || *active.WorkDir != strings.TrimSpace(params.WorkDir) {
 		return false
 	}
-	requestedIntent := strings.TrimSpace(intent)
-	if requestedIntent != "" {
-		if active.Intent == nil || strings.TrimSpace(*active.Intent) != requestedIntent {
+	if trimStringPtr(active.ReviewBaseRef) != strings.TrimSpace(params.ReviewBaseRef) {
+		return false
+	}
+	if trimStringPtr(active.Intent) != strings.TrimSpace(params.Intent) {
+		return false
+	}
+	if !sameStepSet(active.SkipSteps, params.SkipSteps) {
+		return false
+	}
+	return true
+}
+
+func trimStringPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func sameStepSet(a, b []types.StepName) bool {
+	ca := canonicalStepSet(a)
+	cb := canonicalStepSet(b)
+	if len(ca) != len(cb) {
+		return false
+	}
+	for i := range ca {
+		if ca[i] != cb[i] {
 			return false
 		}
 	}
 	return true
+}
+
+func canonicalStepSet(steps []types.StepName) []types.StepName {
+	if len(steps) == 0 {
+		return nil
+	}
+	seen := make(map[types.StepName]struct{}, len(steps))
+	out := make([]types.StepName, 0, len(steps))
+	for _, step := range steps {
+		if step == "babysit" {
+			step = types.StepCI
+		}
+		if step == "" {
+			continue
+		}
+		if _, ok := seen[step]; ok {
+			continue
+		}
+		seen[step] = struct{}{}
+		out = append(out, step)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left, right := out[i].Order(), out[j].Order()
+		if left == right {
+			return out[i] < out[j]
+		}
+		return left < right
+	})
+	return out
 }
 
 func activeRunConflict(active *db.Run, requestedMode types.WorktreeMode, requestedHead, requestedWorkDirLabel string) *ActiveRunConflictError {

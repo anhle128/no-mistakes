@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -187,6 +189,9 @@ func currentWorktreeRecoveryHelp(err error) []string {
 	if err == nil {
 		return nil
 	}
+	if data, ok := currentWorktreeStartErrorDataFromRPC(err); ok && strings.TrimSpace(data.Recovery) != "" {
+		return []string{data.Recovery}
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, string(types.RejectionDirtyWorktree)):
@@ -202,6 +207,26 @@ func currentWorktreeRecoveryHelp(err error) []string {
 	default:
 		return nil
 	}
+}
+
+type currentWorktreeStartErrorData struct {
+	Reason   string `json:"reason"`
+	Recovery string `json:"recovery"`
+}
+
+func currentWorktreeStartErrorDataFromRPC(err error) (currentWorktreeStartErrorData, bool) {
+	var rpcErr *ipc.RPCError
+	if !errors.As(err, &rpcErr) || len(rpcErr.Data) == 0 {
+		return currentWorktreeStartErrorData{}, false
+	}
+	var data currentWorktreeStartErrorData
+	if json.Unmarshal(rpcErr.Data, &data) != nil {
+		return currentWorktreeStartErrorData{}, false
+	}
+	if strings.TrimSpace(data.Reason) == "" && strings.TrimSpace(data.Recovery) == "" {
+		return currentWorktreeStartErrorData{}, false
+	}
+	return data, true
 }
 
 func nonEmpty(value, defaultValue string) string {

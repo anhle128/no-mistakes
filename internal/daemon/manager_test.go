@@ -274,6 +274,7 @@ func TestStartRunCurrentWorktreeResumesActiveRunBeforeDirtyPreflight(t *testing.
 		HeadSHA:       headSHA,
 		WorktreeMode:  types.WorktreeModeCurrent,
 		WorkDir:       repo.WorkingPath,
+		Intent:        "original user goal",
 		RequireIntent: true,
 	}, &second); err != nil {
 		t.Fatal(err)
@@ -283,6 +284,96 @@ func TestStartRunCurrentWorktreeResumesActiveRunBeforeDirtyPreflight(t *testing.
 	}
 	if second.RunID != first.RunID {
 		t.Fatalf("resumed run = %s, want %s", second.RunID, first.RunID)
+	}
+}
+
+func TestStartRunCurrentWorktreeRejectsResumeWhenReviewBaseChanges(t *testing.T) {
+	started := make(chan string, 1)
+	p, d := startTestDaemonWithSteps(t, func() []pipeline.Step {
+		return []pipeline.Step{&notifyBlockStep{name: types.StepReview, started: started}}
+	})
+
+	repo, _ := setupTestGitRepo(t, p, d, "current-base-change-repo")
+	headSHA := commitFeatureBranch(t, repo.WorkingPath, "feature/current", "current.txt", "current change\n", "add current change")
+
+	client, err := ipc.Dial(p.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	params := &ipc.StartRunParams{
+		RepoID:       repo.ID,
+		Branch:       "feature/current",
+		HeadSHA:      headSHA,
+		WorktreeMode: types.WorktreeModeCurrent,
+		WorkDir:      repo.WorkingPath,
+		Intent:       "original user goal",
+	}
+	var first ipc.StartRunResult
+	if err := client.Call(ipc.MethodStartRun, params, &first); err != nil {
+		t.Fatal(err)
+	}
+	waitForStartedBranch(t, started, "feature/current")
+
+	gitCmd(t, repo.WorkingPath, "update-ref", "refs/remotes/origin/main", headSHA)
+
+	var second ipc.StartRunResult
+	err = client.Call(ipc.MethodStartRun, params, &second)
+	if err == nil {
+		t.Fatal("expected changed review base to reject active current run resume")
+	}
+	if !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("error = %v, want incompatible active run", err)
+	}
+}
+
+func TestStartRunCurrentWorktreeRejectsResumeWhenSkipConfigChanges(t *testing.T) {
+	started := make(chan string, 1)
+	p, d := startTestDaemonWithSteps(t, func() []pipeline.Step {
+		return []pipeline.Step{
+			&mockPassStep{name: types.StepReview},
+			&notifyBlockStep{name: types.StepTest, started: started},
+		}
+	})
+
+	repo, _ := setupTestGitRepo(t, p, d, "current-skip-change-repo")
+	headSHA := commitFeatureBranch(t, repo.WorkingPath, "feature/current", "current.txt", "current change\n", "add current change")
+
+	client, err := ipc.Dial(p.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	var first ipc.StartRunResult
+	if err := client.Call(ipc.MethodStartRun, &ipc.StartRunParams{
+		RepoID:       repo.ID,
+		Branch:       "feature/current",
+		HeadSHA:      headSHA,
+		WorktreeMode: types.WorktreeModeCurrent,
+		WorkDir:      repo.WorkingPath,
+		SkipSteps:    []types.StepName{types.StepReview},
+		Intent:       "original user goal",
+	}, &first); err != nil {
+		t.Fatal(err)
+	}
+	waitForStartedBranch(t, started, "feature/current")
+
+	var second ipc.StartRunResult
+	err = client.Call(ipc.MethodStartRun, &ipc.StartRunParams{
+		RepoID:       repo.ID,
+		Branch:       "feature/current",
+		HeadSHA:      headSHA,
+		WorktreeMode: types.WorktreeModeCurrent,
+		WorkDir:      repo.WorkingPath,
+		Intent:       "original user goal",
+	}, &second)
+	if err == nil {
+		t.Fatal("expected changed skip configuration to reject active current run resume")
+	}
+	if !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("error = %v, want incompatible active run", err)
 	}
 }
 
