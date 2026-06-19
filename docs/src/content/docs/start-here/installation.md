@@ -88,7 +88,7 @@ Background update checks run automatically on each CLI invocation (except `updat
 no-mistakes eject
 ```
 
-Removes the `no-mistakes` remote, deletes the bare repo, cleans up worktrees, and removes the database record.
+Removes the `no-mistakes` remote, deletes the bare repo, cleans up managed disposable worktrees, and removes the database record.
 It does not remove repo-local agent skill files created by `no-mistakes init`.
 
 ## Uninstall

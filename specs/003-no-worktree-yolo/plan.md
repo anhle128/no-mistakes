@@ -10,10 +10,11 @@
 ## Summary
 
 Add an explicit current-worktree execution mode for no-mistakes. Users opt in with
-`--no-worktree` on both the root `no-mistakes` command and `no-mistakes axi run`;
-default behavior remains the existing disposable no-mistakes-owned worktree flow.
-The new mode starts runs directly through CLI/daemon IPC, executes in the
-canonical current git worktree root, preserves the full branch review scope, and
+`--no-worktree` on `no-mistakes axi run`; the root `no-mistakes` command accepts
+the flag only to fail closed with explicit-intent guidance when a new run would
+be required. Default behavior remains the existing disposable no-mistakes-owned
+worktree flow. The new mode starts runs directly through CLI/daemon IPC,
+executes in the canonical current git worktree root, preserves the full branch review scope, and
 persists enough metadata for status, AXI, TUI, generated reports, PR summaries,
 cleanup, and recovery to distinguish "uses this checkout" from "disposable
 no-mistakes checkout".
@@ -120,7 +121,7 @@ Primary model changes:
 
 Primary contract changes:
 
-- CLI: root and AXI accept `--no-worktree`; root and AXI accept `--yolo` as alias for `--yes`; both flags together are valid.
+- CLI: root and AXI accept `--no-worktree`; root and AXI accept `--yolo` as alias for `--yes`; both flags together are valid. New current-worktree starts require explicit intent through AXI, while root `--no-worktree` rejects missing intent before run creation.
 - IPC: add a direct start/run request for current mode and extend `RunInfo` with mode, safe work-dir label, warning, metadata/degraded state, review-base evidence, terminal reason, and fix/count summaries.
 - Rendering: status, AXI, TUI, generated reports, and PR summaries expose stable structured fields and plain labels while avoiding repeated full absolute path disclosure.
 
@@ -155,7 +156,7 @@ Primary contract changes:
    - Update PR summaries and generated reports with current mode, safe label, fix commit references, unresolved/degraded evidence state, and run/report reference.
 
 6. Update docs and generated skill guidance.
-   - Document both command forms, `--no-worktree`, and `--yolo` as an alias only.
+   - Document the AXI start form, root missing-intent guidance, `--no-worktree`, and `--yolo` as an alias only.
    - Update agent guidance to use `axi run --intent "..." --no-worktree --yolo` only when the user explicitly wants current-checkout execution.
 
 ## Validation Plan

@@ -81,7 +81,7 @@ You can't reorder steps. You *can*:
 - Ignore paths during review and documentation checks.
 - Disable or tune transcript-based intent extraction when intent is not supplied directly.
 - Skip steps for one run with `no-mistakes --skip <steps>`, `git push -o no-mistakes.skip=<steps>`, `no-mistakes axi run --skip <steps>`, or from the TUI.
-- Choose the current checkout instead of a disposable worktree for one run with `no-mistakes --no-worktree` or `no-mistakes axi run --intent "..." --no-worktree`.
+- Choose the current checkout instead of a disposable worktree for one run with `no-mistakes axi run --intent "..." --no-worktree`.
 
 See [Configuration](/no-mistakes/guides/configuration/).
 

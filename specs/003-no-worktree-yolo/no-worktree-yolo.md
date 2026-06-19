@@ -18,6 +18,8 @@ The source requirement is `plans/grill-me/no-worktree-yolo.md`. It asks for an e
 
 `--no-worktree` means no-mistakes must not create an additional no-mistakes-owned worktree under the no-mistakes worktree store. Instead, the pipeline runs in the root of the current git worktree, which may be an Archon-created worktree or a normal checkout.
 
+The implemented contract keeps explicit intent on the start path: new current-worktree runs start through `no-mistakes axi run --intent "..." --no-worktree`. Root `no-mistakes --no-worktree --yolo` has no `--intent` flag, so it fails before new-run creation with guidance to use AXI rather than starting with empty, generic, or inferred intent.
+
 `--yolo` is only an alias for existing `--yes` behavior. It does not grant new approval behavior.
 
 ## Purpose For The Next Phase
@@ -28,8 +30,8 @@ Planning should treat these as the fixed product decisions:
 
 - Default runs stay isolated.
 - Current-worktree mode is opt-in via `--no-worktree`.
-- The root command can start without explicit intent.
-- AXI starts still require explicit intent.
+- New current-worktree starts use AXI with explicit intent.
+- The root command fails before new current-worktree run creation when explicit intent would be required.
 - Current mode starts directly through CLI/daemon IPC rather than a gate-remote push.
 - Current mode reviews the full branch diff against the default branch base.
 - Current mode persists and displays `worktree_mode` and `work_dir`.

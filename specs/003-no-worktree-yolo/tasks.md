@@ -44,26 +44,26 @@
 
 ---
 
-## Phase 3: User Story 1 - Run From The Current Git Worktree (Priority: P1)
+## Phase 3: User Story 1 - Request The Current Git Worktree Safely (Priority: P1)
 
-**Goal**: `no-mistakes --no-worktree --yolo` starts a run in the current git worktree root without creating a no-mistakes-owned worktree.
+**Goal**: `no-mistakes axi run --intent "..." --no-worktree --yolo` starts a run in the current git worktree root without creating a no-mistakes-owned worktree, while root `no-mistakes --no-worktree --yolo` fails before new-run creation with explicit-intent guidance.
 
-**Independent Test**: From a clean non-default branch, run the root command from a subdirectory and verify the persisted execution directory is the git worktree root and no directory is created under the managed worktree store.
+**Independent Test**: From a clean non-default branch, run the AXI command from a subdirectory and verify the persisted execution directory is the git worktree root and no directory is created under the managed worktree store; run the root command and verify it rejects missing intent before run creation.
 
 ### Tests for User Story 1
 
 - [ ] T014 [P] [US1] Add root command flag parsing tests for `--no-worktree`, `--yolo`, and `--yes --yolo` in `internal/cli/root_test.go`
-- [ ] T015 [P] [US1] Add root current-mode start tests for subdirectory invocation, no managed worktree creation, and `--yolo` equivalence in `internal/daemon/manager_test.go`
-- [ ] T016 [P] [US1] Add inferred-intent tests for non-interactive or `--yolo` root current-mode starts, covering missing-intent rejection, redacted bounded persistence/rendering, no raw transcript or log storage, and recovery guidance that does not echo transcript snippets in `internal/cli/root_test.go`
+- [ ] T015 [P] [US1] Add root current-mode missing-intent rejection tests proving no managed worktree creation and `--yolo` equivalence in `internal/cli/root_test.go`
+- [ ] T016 [P] [US1] Add AXI current-mode start tests for subdirectory invocation, no managed worktree creation, and persisted execution directory in `internal/daemon/manager_test.go`
 
 ### Implementation for User Story 1
 
 - [ ] T017 [US1] Add root command `--no-worktree` and `--yolo` flag wiring with `--yes` logical OR behavior in `internal/cli/root.go`
-- [ ] T018 [US1] Add root current-worktree start flow that resolves branch, head, intent, skip settings, worktree mode, and direct daemon start inputs in `internal/cli/root.go` and `internal/cli/attach.go`
-- [ ] T019 [US1] Add daemon current-mode start support that bypasses `git.WorktreeAdd` and executes in the resolved current root in `internal/daemon/manager.go`
-- [ ] T020 [US1] Persist root current-mode run metadata before recoverability and use the canonical current worktree root as `Executor.Execute` workDir in `internal/daemon/manager.go`
+- [ ] T018 [US1] Add root current-worktree request handling that resolves branch/head, rejects missing intent before run creation, and points users to AXI in `internal/cli/root.go` and `internal/cli/attach.go`
+- [ ] T019 [US1] Add daemon current-mode start support for explicit-intent AXI starts that bypasses `git.WorktreeAdd` and executes in the resolved current root in `internal/daemon/manager.go`
+- [ ] T020 [US1] Persist AXI current-mode run metadata before recoverability and use the canonical current worktree root as `Executor.Execute` workDir in `internal/daemon/manager.go`
 
-**Checkpoint**: Root current-worktree mode works independently.
+**Checkpoint**: AXI current-worktree mode works independently and root missing-intent guidance is fail-closed.
 
 ---
 
@@ -145,7 +145,7 @@
 
 ## Phase 7: User Story 5 - Preserve Existing Isolated Defaults (Priority: P4)
 
-**Goal**: Existing default root, wizard, push-triggered, rerun, AXI `--yes`, cleanup, and generated guidance behavior remains unchanged unless current mode is explicitly requested.
+**Goal**: Existing default root, wizard, push-triggered, rerun, AXI `--yes`, cleanup, and generated guidance behavior remains unchanged unless current mode is explicitly requested through AXI.
 
 **Independent Test**: Run existing flows without `--no-worktree` and verify they still create and clean up disposable no-mistakes-owned worktrees with unchanged `--yes` behavior.
 
@@ -197,7 +197,7 @@
 
 ### User Story Dependencies
 
-- **US1 (P1)**: Independent after Phase 2. Provides root current-mode MVP.
+- **US1 (P1)**: Independent after Phase 2. Provides AXI current-mode MVP plus root missing-intent guidance.
 - **US2 (P1)**: Independent after Phase 2. Shares direct-start and metadata foundations but must remain AXI-testable on its own.
 - **US3 (P2)**: Independent safety layer after Phase 2; strengthens valid starts and rejection behavior for both US1 and US2.
 - **US4 (P3)**: Independent visibility/recovery layer after Phase 2; consumes persisted fields from all current-mode runs.
@@ -241,12 +241,12 @@ Task: "T026 [US2] Register daemon direct start handler in internal/daemon/daemon
 ### MVP First (US1 Only)
 
 1. Complete Phase 1 and Phase 2.
-2. Complete Phase 3 for root current-worktree mode.
+2. Complete Phase 3 for AXI current-worktree mode and root missing-intent guidance.
 3. Stop and validate US1 independently with focused CLI/daemon tests.
 
 ### Incremental Delivery
 
-1. Complete US1 root current mode.
+1. Complete US1 AXI current mode and root missing-intent guidance.
 2. Complete US2 AXI current mode.
 3. Complete US3 safety and review-base hardening.
 4. Complete US4 visibility and recovery surfaces.

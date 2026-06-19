@@ -10,7 +10,7 @@
 ### Session 2026-06-18
 
 - Q1: If current-worktree mode cannot resolve a trustworthy default-branch merge base, the system attempts one non-interactive default-branch ref refresh, then rejects the run before pipeline execution if the base is still unavailable.
-- Q2: If the root `no-mistakes --no-worktree --yolo` command cannot infer usable intent, non-interactive or `--yolo` execution fails with recovery guidance instead of starting with empty or generic intent.
+- Q2: If the root `no-mistakes --no-worktree --yolo` command would need to create a new current-worktree run, it fails before run creation with recovery guidance to provide explicit intent through AXI instead of starting with empty, generic, or inferred intent.
 - Q3: If an active run for the same repo and branch is incompatible by mode, head, or work directory, the new request is rejected and reports the exact active run plus resume or abort guidance using only a safe conflict-message field set: run ID, worktree mode, branch, short head, safe work-directory label, status, and resume/abort commands. Conflict output MUST NOT dump raw logs, transcript-derived intent, diff hunks, code excerpts, secret-bearing metadata, or full run records.
 - Q4: Current-worktree mode warnings are visible but non-blocking in CLI, AXI, status, and TUI output; `--yes` and `--yolo` do not require an extra confirmation.
 - Q5: Current-mode resume compatibility requires the same resolved work directory in addition to compatible repo, branch, head commit, and worktree mode.
@@ -24,11 +24,11 @@ As a developer or coding agent already working inside a tool-created git worktre
 
 **Why this priority**: This is the primary feature. Without it, users in Archon-created or other tool-created worktrees must pay the cost and confusion of an extra execution checkout.
 
-**Independent Test**: Start a run from a clean non-default branch using `no-mistakes --no-worktree --yolo` and confirm the run executes in the current git worktree root without creating a new directory under the no-mistakes worktree store.
+**Independent Test**: Start a run from a clean non-default branch using `no-mistakes axi run --intent "..." --no-worktree --yolo` and confirm the run executes in the current git worktree root without creating a new directory under the no-mistakes worktree store.
 
 **Acceptance Scenarios**:
 
-1. **Given** the user is inside a clean initialized git worktree on a non-default branch, **When** they run `no-mistakes --no-worktree --yolo`, **Then** no-mistakes starts a pipeline using the current git worktree root as the execution directory.
+1. **Given** the user is inside a clean initialized git worktree on a non-default branch, **When** they run `no-mistakes axi run --intent "..." --no-worktree --yolo`, **Then** no-mistakes starts a pipeline using the current git worktree root as the execution directory.
 2. **Given** the user invokes the command from a subdirectory of that worktree, **When** the run starts in current-worktree mode, **Then** the execution directory is the git worktree root rather than the shell subdirectory.
 3. **Given** the user passes `--yolo`, **When** the run reaches approval gates, **Then** the behavior is identical to the existing `--yes` behavior and grants no additional approval power.
 
@@ -38,7 +38,7 @@ As a developer or coding agent already working inside a tool-created git worktre
 
 As a headless agent using AXI, I need to start and drive the same current-worktree pipeline with an explicit intent, so agent workflows can validate the branch without relying on a gate-remote push.
 
-**Why this priority**: The agent-facing workflow is the expected automation path and must support the same execution mode as the root command.
+**Why this priority**: The agent-facing workflow is the expected automation path for new current-worktree starts because it supplies explicit intent.
 
 **Independent Test**: Run `no-mistakes axi run --intent "..." --no-worktree --yolo` from a clean feature branch and confirm it starts or resumes a compatible current-worktree run and drives it using the existing AXI gate behavior.
 
@@ -103,7 +103,7 @@ As an existing no-mistakes user, I need all default commands and existing `--yes
 - The repo has not been initialized with no-mistakes before current-worktree mode is requested.
 - The current branch is dirty, detached, unborn, or equal to the default branch; dirty means tracked changes or untracked non-ignored files are present, while ignored files alone are allowed.
 - The default branch remote ref is missing, stale, or temporarily unavailable while computing the full branch base; current-worktree mode attempts one non-interactive default-branch ref refresh and then rejects the run if the base still cannot be proven.
-- The root command is invoked without explicit intent and existing intent inference cannot produce usable intent in non-interactive or `--yolo` mode.
+- The root command is invoked with `--no-worktree` when no compatible active current-worktree run exists and no explicit intent can be supplied on the root command.
 - An active run exists for the same branch but a different head commit, selected worktree mode, or current-mode resolved work directory.
 - An active isolated run exists for the same repo and branch when current-worktree mode is requested, or an active current-worktree run exists when default isolated mode is requested.
 - Setup fails after the current work directory is resolved but before the executor starts.
@@ -116,14 +116,14 @@ As an existing no-mistakes user, I need all default commands and existing `--yes
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST add a current-worktree mode selected by `--no-worktree` on both the root `no-mistakes` command and `no-mistakes axi run`.
+- **FR-001**: The system MUST add a current-worktree mode selected by `--no-worktree` on `no-mistakes axi run`; the root `no-mistakes` command may accept `--no-worktree` for compatibility and guidance, but new current-worktree starts require explicit AXI intent.
 - **FR-002**: In current-worktree mode, the system MUST NOT create an additional no-mistakes-owned worktree under the no-mistakes worktree store.
 - **FR-003**: In current-worktree mode, the system MUST resolve the execution directory to the current git worktree root, including when the command is invoked from a subdirectory.
 - **FR-004**: The system MUST keep default behavior unchanged: runs without `--no-worktree` continue to use the existing isolated no-mistakes-owned worktree lifecycle.
 - **FR-005**: The system MUST add `--yolo` as an alias for existing `--yes` behavior on the root command and AXI run command.
 - **FR-006**: `--yolo` MUST NOT grant approval behavior beyond existing `--yes` auto-resolution behavior.
 - **FR-007**: Passing both `--yes` and `--yolo` MUST be accepted as auto-resolution enabled, not treated as a conflict.
-- **FR-008**: The root `no-mistakes --no-worktree --yolo` command MUST be able to start a new current-worktree run without requiring an explicit `--intent`, using existing intent inference behavior where available; inferred intent MUST be persisted and rendered only as a redacted, bounded summary, never as raw transcript or log text. If usable intent cannot be inferred in non-interactive or `--yolo` mode, the command MUST fail before starting with recovery guidance for providing or generating intent, and that guidance MUST NOT echo transcript snippets.
+- **FR-008**: The root `no-mistakes --no-worktree --yolo` command MUST fail before creating a new current-worktree run when no compatible active run exists, with recovery guidance to use `no-mistakes axi run --intent "..." --no-worktree`; that guidance MUST NOT echo transcript snippets.
 - **FR-009**: `no-mistakes axi run --no-worktree --yolo` MUST retain the existing `--intent` requirement when starting a new run.
 - **FR-010**: Current-worktree starts MUST use a direct CLI-to-daemon start path and MUST NOT depend on `git push no-mistakes` to trigger a post-receive hook.
 - **FR-011**: Current-worktree starts MUST preserve existing preflight requirements: initialized repo, attached branch, non-default branch, and clean committed worktree; clean committed worktree means tracked changes and untracked non-ignored files are rejected, while ignored files alone do not block the run.
@@ -139,7 +139,7 @@ As an existing no-mistakes user, I need all default commands and existing `--yes
 - **FR-021**: Isolated runs MUST retain existing worktree cleanup behavior.
 - **FR-022**: Active-run selection MUST prevent mixing current and isolated modes on the same repo and branch; incompatible requests MUST be rejected with the exact active run and resume or abort guidance. Current-worktree runs that are aborted, cancelled, stale-recovered, setup-failed, or superseded by an actual replacement run MUST persist a structured terminal reason and, when applicable, the successor run ID and head SHA so status, AXI, TUI, and regenerated reports do not present partial evidence as an ordinary failure.
 - **FR-023**: A current-worktree request MAY resume or drive an active current-worktree run only when the repo, branch, head commit, selected worktree mode, resolved current work directory, review base, and immutable start-shape fields are compatible. Resume MUST NOT replace the active run's persisted intent, skip configuration, approval mode, or review base with values from the new request; differing requested values MUST be rejected or rendered as ignored with explicit guidance.
-- **FR-024**: User-facing docs, generated no-mistakes agent guidance, and PR-facing generated summaries MUST describe both command forms, the meaning of `--no-worktree`, and the fact that `--yolo` is an alias for `--yes`. When a PR is created or updated from a current-worktree run, the PR summary MUST include current-worktree mode, a safe work-directory label, fix count or commit references when fixes occurred, unresolved/degraded evidence state, and the run/report reference.
+- **FR-024**: User-facing docs, generated no-mistakes agent guidance, and PR-facing generated summaries MUST describe the AXI current-worktree start form, the root command's missing-intent guidance, the meaning of `--no-worktree`, and the fact that `--yolo` is an alias for `--yes`. When a PR is created or updated from a current-worktree run, the PR summary MUST include current-worktree mode, a safe work-directory label, fix count or commit references when fixes occurred, unresolved/degraded evidence state, and the run/report reference.
 - **FR-025**: The implementation MUST support only the correctly spelled `no-mistakes` command and MUST NOT add typo aliases.
 - **FR-026**: The spec directory MUST preserve a sanitized companion origin reference that records the source requirement, purpose, sub-agent scouting, and source-code context for later Speckit phases. The origin reference MUST preserve file paths, symbols, decisions, and concise evidence summaries only; it MUST NOT copy raw sub-agent transcripts, raw logs, diff hunks, secrets, or long code excerpts when a location reference is sufficient.
 
@@ -181,7 +181,7 @@ As an existing no-mistakes user, I need all default commands and existing `--yes
 
 - Users requesting `--no-worktree` understand that the current git worktree is the intended place for pipeline fixes and commits.
 - Archon-created worktrees are a primary use case, but normal clean non-default checkouts are also supported when the user explicitly selects current-worktree mode.
-- Existing intent inference is the root command fallback when no explicit intent is supplied, but non-interactive or `--yolo` starts fail with recovery guidance if inference cannot produce usable intent.
+- Root current-worktree starts cannot supply explicit intent, so new current-worktree starts use AXI. Root `--no-worktree` without a compatible active run fails before run creation with recovery guidance.
 - Existing AXI behavior continues to require explicit intent for new headless starts.
 - The existing pipeline can execute from an explicit work directory once the daemon chooses that directory.
 - The feature does not require a new permission model, a new finding taxonomy, or changes to supported pipeline step ordering.

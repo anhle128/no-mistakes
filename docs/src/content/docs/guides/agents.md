@@ -13,7 +13,8 @@ have not configured explicit commands, auto-fixing, and setup-wizard suggestions
 when you leave prompts blank.
 
 Pipeline agent prompts also include a workspace-boundary preamble.
-It tells agents to keep intentional source, project, user-data, and system file writes inside the disposable worktree, avoid mutating system state such as Homebrew packages, `/Applications`, or global tool config, and treat that boundary as prompt steering rather than true enforcement.
+It tells agents to keep intentional source, project, user-data, and system file writes inside the selected run worktree, avoid mutating system state such as Homebrew packages, `/Applications`, or global tool config, and treat that boundary as prompt steering rather than true enforcement.
+In the default mode that boundary is a disposable no-mistakes worktree; with explicit `--no-worktree`, it is the current checkout and automated fix commits remain there.
 The only intentional out-of-worktree write it allows is test evidence under the managed temporary `no-mistakes-evidence` directory when a testing prompt asks for it; when in-repo evidence is enabled, test evidence stays inside the configured evidence directory instead.
 Incidental temp or cache writes from normal development tools are still allowed.
 Testing prompts also ask agents to remove transient working-tree artifacts they created, such as downloaded models, caches, build outputs, large binaries, or generated data directories, before reporting completion.

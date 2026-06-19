@@ -55,7 +55,7 @@ make e2e
    - AXI output includes `work_dir_label` and `current_worktree_warning`.
    - Any automated fix commits remain in the current checkout.
 
-## Manual Smoke: Root Current Mode
+## Manual Smoke: Root Current-Mode Guidance
 
 From a clean non-default branch:
 
@@ -63,11 +63,9 @@ From a clean non-default branch:
 no-mistakes --no-worktree --yolo
 ```
 
-Confirm the root command either:
-
-- Starts a current-worktree run with inferred, redacted intent, or
-- Fails before run creation with recovery guidance for providing/generating
-  intent when inference is unavailable.
+Confirm the root command fails before run creation with recovery guidance to use
+`no-mistakes axi run --intent "..." --no-worktree`; the root command has no
+`--intent` flag and must not start with empty, generic, or inferred intent.
 
 ## Rejection Checks
 
@@ -76,19 +74,19 @@ Each case must reject before pipeline execution:
 ```sh
 # default branch
 git switch main
-no-mistakes --no-worktree --yolo
+no-mistakes axi run --intent "validate current-worktree execution" --no-worktree --yolo
 
 # detached head
 git checkout --detach HEAD
-no-mistakes --no-worktree --yolo
+no-mistakes axi run --intent "validate current-worktree execution" --no-worktree --yolo
 
 # tracked dirty file
 echo dirty >> README.md
-no-mistakes --no-worktree --yolo
+no-mistakes axi run --intent "validate current-worktree execution" --no-worktree --yolo
 
 # untracked non-ignored file
 touch untracked-current-mode-check.txt
-no-mistakes --no-worktree --yolo
+no-mistakes axi run --intent "validate current-worktree execution" --no-worktree --yolo
 ```
 
 Ignored-only files should not block:
@@ -97,7 +95,7 @@ Ignored-only files should not block:
 mkdir -p tmp
 printf 'tmp/\n' >> .git/info/exclude
 touch tmp/ignored-only
-no-mistakes --no-worktree --yolo
+no-mistakes axi run --intent "validate current-worktree execution" --no-worktree --yolo
 ```
 
 ## Rendering Checks

@@ -72,6 +72,7 @@ git push no-mistakes
 ```
 
 The push lands in the local bare repo, the hook notifies the daemon, and the daemon starts the pipeline in a disposable worktree.
+If an agent workflow explicitly needs to validate the checkout you are already standing in, use `no-mistakes axi run --intent "..." --no-worktree` instead of the push trigger; that current-worktree mode requires a clean non-default branch and leaves automated fix commits in that checkout.
 
 ## 5. Watch the pipeline
 

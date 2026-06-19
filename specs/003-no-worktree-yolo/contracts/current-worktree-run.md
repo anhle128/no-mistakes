@@ -14,10 +14,10 @@ Rules:
 - Absence of `--no-worktree` preserves existing isolated behavior.
 - `--yolo` is an alias for `--yes`.
 - Passing both `--yes` and `--yolo` is valid and means auto-resolution enabled.
-- In current mode, the root command may use existing intent inference.
-- In non-interactive or `--yolo` current mode, missing usable inferred intent
-  fails before run creation with recovery guidance that does not echo transcript
-  snippets.
+- In current mode, new run starts require explicit AXI intent.
+- Root `--no-worktree` requests that would need a new current-worktree run
+  fail before run creation with recovery guidance that does not echo transcript
+  snippets, because the root command has no `--intent` flag.
 
 ### AXI command
 

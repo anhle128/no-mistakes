@@ -4,9 +4,9 @@ description: What no-mistakes is and why it exists.
 ---
 
 `no-mistakes` puts a local git proxy in front of your real remote. Push to
-`no-mistakes` instead of `origin`, and it spins up a disposable worktree, runs
-an AI-driven validation pipeline, forwards upstream only after every check
-passes, and opens a clean PR automatically.
+`no-mistakes` instead of `origin`, and it spins up a disposable worktree by
+default, runs an AI-driven validation pipeline, forwards upstream only after
+every check passes, and opens a clean PR automatically.
 
 ## The Bottleneck Moved
 
@@ -26,8 +26,11 @@ branch reaches upstream:
 - **After** the push, it watches CI and auto-fixes failures. On GitHub and GitLab it also watches PR mergeability and fixes merge conflicts on the branch.
 - **Throughout**, every step can pause for your approval. You see the findings, pick what to fix, and decide when to ship.
 
-The whole thing runs in a disposable worktree. Your working directory is never
-touched, so you can keep coding while the pipeline runs.
+By default, the whole thing runs in a disposable worktree. Your working
+directory is never touched, so you can keep coding while the pipeline runs.
+Agent-driven runs can explicitly opt into the current checkout with
+`no-mistakes axi run --intent "..." --no-worktree`; that mode requires a clean
+non-default branch and leaves automated fix commits in the current checkout.
 
 ## Why The Remote Is Named
 
@@ -49,7 +52,10 @@ flowchart LR
   gate --> hook["post-receive hook"]
   hook --> daemon["Daemon"]
   daemon --> worktree["Disposable worktree"]
+  axi["axi run --intent ... --no-worktree"] --> daemon
+  daemon --> current["Current git worktree"]
   worktree --> pipeline["intent -> rebase -> review -> test -> document -> lint -> push -> pr -> ci"]
+  current --> pipeline
   pipeline --> upstream["Upstream remote"]
 ```
 

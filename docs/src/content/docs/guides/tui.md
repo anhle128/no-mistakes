@@ -125,6 +125,12 @@ During running steps, shows streaming agent output. Lines starting with `PASS` a
 
 On narrow terminals, the log panel expands to fill the remaining vertical space below the pipeline box instead of staying at the compact fixed height used in shorter layouts.
 
+### Current-worktree warning
+
+Runs started with `--no-worktree` show a warning box labeled `Current worktree`.
+It uses a safe work-directory label instead of the full path and reminds you that pipeline fixes may modify the checkout you are standing in.
+The warning remains visible across running, paused, and terminal states; no-mistakes does not clean up that checkout.
+
 ### CI panel
 
 While the CI step is active, the TUI shows a dedicated CI panel instead of the generic findings view.

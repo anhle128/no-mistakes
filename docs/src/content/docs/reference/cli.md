@@ -5,25 +5,24 @@ description: Complete reference for all no-mistakes commands and flags.
 
 ## no-mistakes
 
-Attach to the active pipeline run for the current branch when one exists. If none exists, bare `no-mistakes` can start the setup wizard to create a branch, commit changes, push through the gate, wait for the daemon to register the new run, and then attach. If the push succeeds but no run is registered, that wizard path now exits with an explicit error instead of silently falling through. By default this wizard path is interactive and only runs in a TTY session. In non-interactive contexts, bare `no-mistakes` falls back to showing the last 5 runs inline unless you pass `-y` or `--yes` to run the wizard and accept defaults automatically. When a TTY is available, `-y` keeps the wizard visible, shows a brief `waiting for run…` state after push, and auto-advances the default path; without a TTY it falls back to the headless path.
+Attach to the active pipeline run for the current branch when one exists. If none exists, bare `no-mistakes` can start the setup wizard to create a branch, commit changes, push through the gate, wait for the daemon to register the new run, and then attach. If the push succeeds but no run is registered, that wizard path now exits with an explicit error instead of silently falling through. By default this wizard path is interactive and only runs in a TTY session. In non-interactive contexts, bare `no-mistakes` falls back to showing the last 5 runs inline unless you pass `-y`, `--yes`, or `--yolo` to run the wizard and accept defaults automatically. When a TTY is available, `-y` / `--yes` / `--yolo` keeps the wizard visible, shows a brief `waiting for run…` state after push, and auto-advances the default path; without a TTY it falls back to the headless path.
 
 ```sh
 no-mistakes
 no-mistakes --skip test,lint
-no-mistakes --no-worktree --yolo
 ```
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `-y`, `--yes` | `bool` | `false` | Run setup wizard and accept defaults automatically |
 | `--yolo` | `bool` | `false` | Alias for `--yes`; does not grant any extra approval behavior |
-| `--no-worktree` | `bool` | `false` | Start a new run in the current git worktree instead of a disposable no-mistakes worktree |
+| `--no-worktree` | `bool` | `false` | Request current-worktree execution; new starts need explicit intent through AXI |
 | `--skip` | `string` | (none) | Comma-separated pipeline steps to skip for a new run |
 
 Unlike `no-mistakes attach`, bare `no-mistakes` only auto-attaches to an active run on the current branch.
 `--skip` only applies when bare `no-mistakes` starts a new pipeline run through the wizard; it does not skip a step on an already-active run.
 Valid step names are `intent`, `rebase`, `review`, `test`, `document`, `lint`, `push`, `pr`, and `ci`.
-With `--no-worktree`, bare `no-mistakes` bypasses the gate-push worktree creation path and asks the daemon to start directly in the canonical current git worktree root. The checkout must already be initialized, on a clean non-default branch, and able to prove a review base against the default branch. Automated fixes and commits remain in that checkout, and no-mistakes will not clean up the directory afterward.
+The root command has no `--intent` flag. When `--no-worktree` would need to create a new run, it fails before run creation with guidance to use `no-mistakes axi run --intent "..." --no-worktree`; no-mistakes does not fabricate intent for an unattended current-checkout run. Current-worktree execution requires an initialized, clean, non-default branch with a trustworthy review base. Automated fixes and commits remain in that checkout, and no-mistakes will not clean up the directory afterward.
 
 ## no-mistakes init
 
@@ -173,7 +172,7 @@ Remove the gate from the current repository.
 no-mistakes eject
 ```
 
-Removes the `no-mistakes` remote, deletes the bare repo directory, cleans up worktrees, and deletes the database record (cascades to runs and steps).
+Removes the `no-mistakes` remote, deletes the bare repo directory, cleans up managed disposable worktrees, and deletes the database record (cascades to runs and steps).
 It does not remove repo-local agent skill files created by `init`.
 
 ## no-mistakes attach
@@ -212,7 +211,7 @@ Displays:
 - Repo path and upstream URL
 - Gate path
 - Daemon status (running/stopped, PID)
-- Active run details: ID, branch, status, head SHA, start time
+- Active run details: ID, branch, status, head SHA, execution mode, worktree label, warnings, degraded evidence or terminal reason when present, and start time
 
 ## no-mistakes runs
 

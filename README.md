@@ -30,7 +30,7 @@
   <img src="https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/demo.gif" alt="no-mistakes demo" width="800" />
 </p>
 
-`no-mistakes` puts a local git proxy in front of your real remote. Push to `no-mistakes` instead of `origin`, and it spins up a disposable worktree, runs an AI-driven validation pipeline, forwards upstream only after every check passes, and opens a clean PR automatically.
+`no-mistakes` puts a local git proxy in front of your real remote. Push to `no-mistakes` instead of `origin`, and it spins up a disposable worktree, runs an AI-driven validation pipeline, forwards upstream only after every check passes, and opens a clean PR automatically. If another tool already created the checkout you want validated, the agent-facing AXI path can opt into the current worktree with `--no-worktree`.
 
 - **Non-blocking** - the pipeline runs in an isolated worktree without disrupting your work.
 - **Agent-agnostic** - `claude`, `codex`, `rovodev`, `opencode`, `pi`, or `acp:<target>` via `acpx`.
@@ -56,6 +56,8 @@ Full documentation: <https://kunchenguid.github.io/no-mistakes/>
 ```
 
 Each step either passes on its own or stops with a **finding** for you to act on. Safe, mechanical fixes are applied automatically; anything that touches your intent is escalated for you to **approve**, **fix**, or **skip**. Nothing reaches your real remote until every check is green.
+
+The disposable worktree is the default and the `git push no-mistakes` path always uses it. Agent workflows that explicitly need to validate the current checkout can run `no-mistakes axi run --intent "..." --no-worktree`; that mode requires a clean non-default branch and leaves any automated fix commits in the checkout you are standing in.
 
 ## Install
 

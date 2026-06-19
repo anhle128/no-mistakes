@@ -30,7 +30,7 @@
   <img src="https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/demo.gif" alt="no-mistakes demo" width="800" />
 </p>
 
-`no-mistakes` 在你真实的远端前面放了一个本地 git 代理。把分支推给 `no-mistakes` 而不是 `origin`，它会拉起一个用完即弃的 worktree，跑一条 AI 驱动的校验流水线，**只有每一项检查都通过后**才转发到上游，并自动开出一个干净的 PR。
+`no-mistakes` 在你真实的远端前面放了一个本地 git 代理。把分支推给 `no-mistakes` 而不是 `origin`，它会拉起一个用完即弃的 worktree，跑一条 AI 驱动的校验流水线，**只有每一项检查都通过后**才转发到上游，并自动开出一个干净的 PR。如果另一个工具已经为你创建了要校验的 checkout，面向 agent 的 AXI 路径可以用 `--no-worktree` 显式选择当前 worktree。
 
 - **不阻塞** —— 流水线在隔离的 worktree 里跑，不打断你手头的工作。
 - **不挑 agent** —— 支持 `claude`、`codex`、`rovodev`、`opencode`、`pi`，或通过 `acpx` 用 `acp:<target>`。
@@ -56,6 +56,8 @@
 ```
 
 每一步要么自己通过，要么停下来给你一条 **finding** 让你处理。安全、机械性的修复会自动应用；任何牵涉到你**意图**的，都会升级给你来 **approve（批准）**、**fix（修复）** 或 **skip（跳过）**。在每项检查都变绿之前，没有任何东西会到达你真实的远端。
+
+用完即弃的 worktree 是默认模式，`git push no-mistakes` 始终走这个模式。只有当 agent 工作流明确需要校验当前 checkout 时，才使用 `no-mistakes axi run --intent "..." --no-worktree`；该模式要求当前分支干净、不是默认分支，并且自动修复提交会留在你当前所在的 checkout 里。
 
 ## 安装
 

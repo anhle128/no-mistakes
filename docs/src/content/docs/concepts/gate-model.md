@@ -16,7 +16,7 @@ flowchart TD
   repo["Working repo"] -->|"git push no-mistakes"| gate["Local bare gate repo"]
   gate --> hook["post-receive hook"]
   hook --> daemon["Daemon"]
-  axiStart["no-mistakes --no-worktree or axi run --no-worktree"] --> daemon
+  axiStart["axi run --intent ... --no-worktree"] --> daemon
   daemon --> worktree["Disposable worktree"]
   daemon --> current["Current git worktree"]
   worktree --> pipeline["intent -> rebase -> review -> test -> document -> lint -> push -> pr -> ci"]
@@ -95,7 +95,7 @@ agent edit files, and commit fixes. Your day-to-day working tree stays clean.
 
 ### Current-worktree mode
 
-Passing `--no-worktree` to bare `no-mistakes` or `no-mistakes axi run` asks the daemon to start a run directly in the current git worktree root instead of creating a disposable no-mistakes-owned worktree. This mode is useful when an outer tool has already created a dedicated branch checkout.
+Passing `--no-worktree` to `no-mistakes axi run --intent "..."` asks the daemon to start a run directly in the current git worktree root instead of creating a disposable no-mistakes-owned worktree. This mode is useful when an outer tool has already created a dedicated branch checkout.
 
 Because automated fixes and commits land in that checkout, current mode fails closed before the pipeline starts. The checkout must be clean, on a non-default branch, attached to a real HEAD, and able to prove a default-branch review base. Status, AXI, TUI, and PR output render it as `uses this checkout` with a warning. Crash recovery can mark the run failed or incomplete, but it will not remove the current work directory.
 

@@ -91,7 +91,7 @@ On follow-up review passes, that history tells the agent not to re-report user-i
 For Review fixes, the agent may also return structured per-finding `resolutions[]` with applied solution, rationale, and changed files; no-mistakes stores those details as local report evidence when they are valid.
 
 After a user-triggered fix, the step re-runs and pauses again to show you the results (`fix_review` status). You can then approve, fix again, skip, or abort.
-Yolo and AXI `--yes` approve that fix review automatically after their one fix round, so a finding that remains after the fix does not trigger an unbounded fix loop.
+TUI yolo mode, AXI `--yes`, and the run-start `--yolo` alias approve that fix review automatically after their one fix round, so a finding that remains after the fix does not trigger an unbounded fix loop.
 
 ## Fix commits
 

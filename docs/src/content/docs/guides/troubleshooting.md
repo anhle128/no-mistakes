@@ -113,7 +113,8 @@ no-mistakes daemon start
 
 ## macOS App Management prompts during agent runs
 
-Pipeline prompts steer agents to keep intentional writes inside the disposable worktree and avoid mutating system locations such as `/Applications`, Homebrew-managed packages, or global tool configuration.
+Pipeline prompts steer agents to keep intentional writes inside the selected run worktree and avoid mutating system locations such as `/Applications`, Homebrew-managed packages, or global tool configuration.
+For normal gated pushes that worktree is disposable; for `--no-worktree` runs it is the current checkout.
 This reduces macOS App Management prompts from agent-invoked commands, but it is not an OS sandbox.
 
 If you still see prompts, check the step log for commands that intentionally write outside the worktree and move that setup into your normal development environment or an explicit repo-local command.
@@ -139,6 +140,7 @@ Current-worktree mode is stricter because no-mistakes would be writing commits i
 - `rejected_detached_head` or `rejected_unborn_head` - check out a real branch with at least one commit.
 - `rejected_no_trustworthy_base` - fetch the default branch or repair the upstream/default-branch configuration so no-mistakes can prove the branch review base.
 - `rejected_active_run_conflict` - inspect the active run, resume it if it is compatible, or abort it before starting a different current-worktree run.
+- `missing_intent` - use `no-mistakes axi run --intent "the user's goal" --no-worktree` so the run has explicit review intent before it starts.
 
 When a current-worktree run fails or the daemon recovers from a crash, no-mistakes marks the run failed or incomplete but does not remove the checkout.
 
