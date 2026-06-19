@@ -23,7 +23,7 @@ spec-kit-ralph/
 |-- ralph.sh
 |-- ralph-config.yml
 |-- ralph-config.template.yml
-|-- build-extension.sh
+|-- install-extension.sh
 `-- README.md
 ```
 
@@ -65,16 +65,16 @@ After installation, the extension files live under:
 .specify/extensions/ralph-loop/
 ```
 
-This checkout also includes `build-extension.sh`, which stages a clean copy of
+This checkout also includes `install-extension.sh`, which stages a clean copy of
 the extension and installs or updates it in one or more local Spec Kit projects:
 
 ```bash
-./build-extension.sh --repo /path/to/spec-kit-project
-./build-extension.sh --dry-run --repo /path/to/spec-kit-project
+./install-extension.sh --repo /path/to/spec-kit-project
+./install-extension.sh --dry-run --repo /path/to/spec-kit-project
 ```
 
 If no repo is passed, the script uses the default repo hardcoded in
-`build-extension.sh`.
+`install-extension.sh`.
 
 ## End-to-End Use
 
