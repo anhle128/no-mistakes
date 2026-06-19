@@ -101,6 +101,13 @@ func TestClassifierStatusForIncompleteRunStates(t *testing.T) {
 			snap:         Snapshot{Entries: []Entry{resolved}},
 			want:         db.ReviewResolutionStatusFinal,
 		},
+		{
+			name:         "completed skipped accepted issue is final",
+			runStatus:    types.RunCompleted,
+			reviewStatus: types.StepStatusSkipped,
+			snap:         Snapshot{Entries: []Entry{{Finding: types.Finding{ID: "review-1"}, Outcome: OutcomeAccepted}}},
+			want:         db.ReviewResolutionStatusFinal,
+		},
 	}
 
 	for _, tc := range cases {
