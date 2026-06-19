@@ -1,0 +1,9 @@
+bin: /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach upstream. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo
+current_branch: feature/current-mode-yolo
+daemon: running
+count: 1 of 1 total
+runs[1]{id,branch,status,head,worktree_mode,work_dir_label,pr}:
+  "01KVFJ38EQKQNCNANM3MC7Q5JM",feature/current-mode-yolo,completed,fe3da5d7,current,repo,""
+help[1]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes"
