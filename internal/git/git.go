@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -94,6 +95,27 @@ func FindGitRoot(path string) (string, error) {
 		return root, nil
 	}
 	return resolved, nil
+}
+
+// CurrentWorktreeRoot resolves path to the canonical root of the current git
+// worktree. It intentionally returns the linked worktree root, not the main
+// repository root, because current-worktree mode executes in this checkout.
+func CurrentWorktreeRoot(ctx context.Context, dir string) (string, error) {
+	root, err := Run(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("resolve current worktree root: %w", err)
+	}
+	if strings.TrimSpace(root) == "" {
+		return "", fmt.Errorf("resolve current worktree root: empty git root")
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
 }
 
 // FindMainRepoRoot returns the root of the main working tree for a git
@@ -284,6 +306,67 @@ func HasUncommittedChanges(ctx context.Context, dir string) (bool, error) {
 		return false, err
 	}
 	return out != "", nil
+}
+
+// HasCommittedWorktreeDirt reports tracked changes or untracked non-ignored
+// files. Ignored files are intentionally omitted so local caches do not block a
+// current-worktree run.
+func HasCommittedWorktreeDirt(ctx context.Context, dir string) (bool, error) {
+	out, err := Run(ctx, dir, "status", "--porcelain", "--untracked-files=normal")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// ReviewBaseEvidence records how the branch review base was proven.
+type ReviewBaseEvidence struct {
+	BaseSHA          string
+	Ref              string
+	RefreshAttempted bool
+	RefreshError     string
+}
+
+// ResolveCurrentReviewBase finds a trustworthy merge base against the default
+// branch. It tries local refs first, then performs one non-interactive fetch of
+// the default branch and retries before failing.
+func ResolveCurrentReviewBase(ctx context.Context, dir, remote, defaultBranch string) (ReviewBaseEvidence, error) {
+	defaultBranch = strings.TrimSpace(defaultBranch)
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		remote = "origin"
+	}
+	refs := []string{remote + "/" + defaultBranch, defaultBranch}
+	if evidence, ok := mergeBaseForRefs(ctx, dir, refs); ok {
+		return evidence, nil
+	}
+	evidence := ReviewBaseEvidence{
+		Ref:              remote + "/" + defaultBranch,
+		RefreshAttempted: true,
+	}
+	if err := FetchRemoteBranch(ctx, dir, remote, defaultBranch); err != nil {
+		evidence.RefreshError = err.Error()
+	} else if refreshed, ok := mergeBaseForRefs(ctx, dir, refs); ok {
+		refreshed.RefreshAttempted = true
+		return refreshed, nil
+	}
+	if evidence.RefreshError == "" {
+		evidence.RefreshError = "default branch merge base not found after refresh"
+	}
+	return evidence, fmt.Errorf("no trustworthy merge base for %s", path.Join(remote, defaultBranch))
+}
+
+func mergeBaseForRefs(ctx context.Context, dir string, refs []string) (ReviewBaseEvidence, bool) {
+	for _, ref := range refs {
+		mb, err := Run(ctx, dir, "merge-base", "HEAD", ref)
+		if err == nil && strings.TrimSpace(mb) != "" {
+			return ReviewBaseEvidence{BaseSHA: strings.TrimSpace(mb), Ref: ref}, true
+		}
+	}
+	return ReviewBaseEvidence{}, false
 }
 
 // CreateBranch creates a new branch with the given name and switches to it.

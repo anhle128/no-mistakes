@@ -1,0 +1,2 @@
+error: current worktree is not clean
+help[1]: "Commit or remove tracked changes and untracked non-ignored files, then retry"

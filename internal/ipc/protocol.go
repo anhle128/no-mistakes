@@ -10,6 +10,7 @@ import (
 // JSON-RPC 2.0 method names.
 const (
 	MethodPushReceived = "push_received"
+	MethodStartRun     = "start_run"
 	MethodGetRun       = "get_run"
 	MethodGetRuns      = "get_runs"
 	MethodGetActiveRun = "get_active_run"
@@ -48,8 +49,9 @@ type Response struct {
 
 // RPCError represents a JSON-RPC 2.0 error object.
 type RPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 func (e *RPCError) Error() string { return e.Message }
@@ -68,6 +70,25 @@ type PushReceivedParams struct {
 	New       string           `json:"new"`
 	SkipSteps []types.StepName `json:"skip_steps,omitempty"`
 	Intent    string           `json:"intent,omitempty"`
+}
+
+// StartRunParams starts a run directly through the daemon without relying on
+// the gate post-receive hook. Current-worktree mode uses this path.
+type StartRunParams struct {
+	RepoID                     string             `json:"repo_id"`
+	Branch                     string             `json:"branch"`
+	HeadSHA                    string             `json:"head_sha"`
+	BaseSHA                    string             `json:"base_sha"`
+	WorktreeMode               types.WorktreeMode `json:"worktree_mode"`
+	WorkDir                    string             `json:"work_dir,omitempty"`
+	WorkDirLabel               string             `json:"work_dir_label,omitempty"`
+	CurrentWorktreeWarning     string             `json:"current_worktree_warning,omitempty"`
+	ReviewBaseRef              string             `json:"review_base_ref,omitempty"`
+	ReviewBaseRefreshAttempted bool               `json:"review_base_refresh_attempted,omitempty"`
+	ReviewBaseRefreshError     string             `json:"review_base_refresh_error,omitempty"`
+	SkipSteps                  []types.StepName   `json:"skip_steps,omitempty"`
+	Intent                     string             `json:"intent,omitempty"`
+	RequireIntent              bool               `json:"require_intent,omitempty"`
 }
 
 // GetRunParams requests a single run by ID.
@@ -135,6 +156,12 @@ type PushReceivedResult struct {
 	RunID string `json:"run_id"`
 }
 
+// StartRunResult confirms a direct start or compatible active run.
+type StartRunResult struct {
+	RunID   string `json:"run_id"`
+	Resumed bool   `json:"resumed,omitempty"`
+}
+
 // GetRunResult wraps a single run.
 type GetRunResult struct {
 	Run *RunInfo `json:"run"`
@@ -179,14 +206,25 @@ type ShutdownResult struct {
 
 // RunInfo is the IPC representation of a pipeline run.
 type RunInfo struct {
-	ID      string          `json:"id"`
-	RepoID  string          `json:"repo_id"`
-	Branch  string          `json:"branch"`
-	HeadSHA string          `json:"head_sha"`
-	BaseSHA string          `json:"base_sha"`
-	Status  types.RunStatus `json:"status"`
-	PRURL   *string         `json:"pr_url,omitempty"`
-	Error   *string         `json:"error,omitempty"`
+	ID                         string                     `json:"id"`
+	RepoID                     string                     `json:"repo_id"`
+	Branch                     string                     `json:"branch"`
+	HeadSHA                    string                     `json:"head_sha"`
+	BaseSHA                    string                     `json:"base_sha"`
+	Status                     types.RunStatus            `json:"status"`
+	PRURL                      *string                    `json:"pr_url,omitempty"`
+	Error                      *string                    `json:"error,omitempty"`
+	WorktreeMode               types.WorktreeMode         `json:"worktree_mode"`
+	WorkDir                    string                     `json:"work_dir,omitempty"`
+	WorkDirLabel               string                     `json:"work_dir_label,omitempty"`
+	CurrentWorktreeWarning     string                     `json:"current_worktree_warning,omitempty"`
+	MetadataAvailability       types.MetadataAvailability `json:"metadata_availability,omitempty"`
+	EvidenceState              types.EvidenceState        `json:"evidence_state,omitempty"`
+	TerminalReason             string                     `json:"terminal_reason,omitempty"`
+	ReviewBaseRef              string                     `json:"review_base_ref,omitempty"`
+	ReviewBaseRefreshAttempted bool                       `json:"review_base_refresh_attempted,omitempty"`
+	ReviewBaseRefreshError     string                     `json:"review_base_refresh_error,omitempty"`
+	RejectionReason            string                     `json:"rejection_reason,omitempty"`
 	// ReviewResolution carries compact local report metadata for runs whose
 	// Review step recorded findings. Clean Review runs omit it.
 	ReviewResolution *ReviewResolutionReportInfo `json:"review_resolution,omitempty"`
@@ -305,4 +343,18 @@ func NewErrorResponse(id int64, code int, message string) *Response {
 		Error:   &RPCError{Code: code, Message: message},
 		ID:      id,
 	}
+}
+
+// NewErrorResponseWithData creates an error JSON-RPC response with structured
+// details for clients that can render safer recovery guidance.
+func NewErrorResponseWithData(id int64, code int, message string, data interface{}) *Response {
+	resp := NewErrorResponse(id, code, message)
+	if data == nil {
+		return resp
+	}
+	raw, err := json.Marshal(data)
+	if err == nil {
+		resp.Error.Data = raw
+	}
+	return resp
 }

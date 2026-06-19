@@ -15,16 +15,19 @@ working after your shell command returns.
 
 - Git hands the push to the local gate repo.
 - The hook notifies the daemon and exits immediately.
-- The daemon owns the long-running work: worktrees, pipeline execution, TUI
-  events, state, cleanup, and crash recovery.
+- The daemon owns the long-running work: execution-directory selection,
+  pipeline execution, TUI events, state, cleanup, and crash recovery.
 
 ```mermaid
 flowchart LR
   push["git push no-mistakes"] --> gate["Gate repo hook"] --> daemon["Daemon"]
-  daemon --> run["Run in detached worktree"]
+  daemon --> run["Run in disposable worktree"]
+  direct["axi run --intent ... --no-worktree"] --> daemon
+  daemon --> current["Run in current git worktree"]
   daemon --> state["Persist state + logs"]
   run --> tui["TUI can attach or detach"]
-  run --> cleanup["Cleanup when run finishes"]
+  current --> tui
+  run --> cleanup["Cleanup disposable worktree"]
 ```
 
 On macOS this is a per-user `launchd` agent, on Linux a per-user `systemd` service, and on Windows a Task Scheduler task. The installed artifact names are scoped by `NM_HOME` with a short stable suffix, so the paths and service identifiers look like `~/Library/LaunchAgents/com.kunchenguid.no-mistakes.daemon.<suffix>.plist`, `~/.config/systemd/user/no-mistakes-daemon-<suffix>.service`, and the Windows task `no-mistakes-daemon-<suffix>`. That keeps multiple `no-mistakes` installs from colliding when they use different `NM_HOME` roots. Those service managers keep the daemon available across CLI invocations and restart it after `no-mistakes update` replaces the binary. Before a managed daemon run starts, `no-mistakes` reloads the environment from your login shell on macOS and Linux and augments `PATH` with common user, Homebrew, and system binary directories so agent and tool discovery is not limited to the service manager's minimal environment. If login-shell resolution fails, it logs a warning and uses an augmented process-environment fallback that may omit version-manager directories. On Windows it reuses the current process environment instead of shelling out to a login shell. If managed service install or startup is unavailable or fails, `no-mistakes` falls back to starting a detached daemon process instead.
@@ -71,7 +74,9 @@ When a push arrives via the post-receive hook:
 3. Streams events to any connected TUI clients and serves request/response state to AXI clients
 4. Cleans up the worktree when the run finishes (success or failure)
 
-Pipeline agents are prompted to keep intentional writes inside that detached worktree and avoid changing system state outside it, such as Homebrew packages, apps under `/Applications`, or global tool configuration.
+When `no-mistakes axi run --intent "..." --no-worktree` starts a direct current-worktree run, the daemon skips managed worktree creation, verifies that the current checkout is safe to mutate, records the execution directory in run metadata, and never removes that checkout during cleanup or crash recovery.
+
+Pipeline agents are prompted to keep intentional writes inside the selected run worktree and avoid changing system state outside it, such as Homebrew packages, apps under `/Applications`, or global tool configuration.
 That reduces surprising machine-level side effects and macOS App Management prompts, but it is prompt steering rather than a true sandbox.
 
 ## Concurrent push handling
@@ -93,11 +98,12 @@ On startup, the daemon checks for runs that were left in `pending` or `running` 
 
 - Marks those runs as `failed` with the message "daemon crashed during execution"
 - Reaps orphaned managed agent servers left behind by a crashed daemon or setup wizard
-- Removes any orphaned worktree directories via `git worktree remove --force`
+- Removes any orphaned disposable worktree directories via `git worktree remove --force`
 - Refreshes review-resolution reports for recovered runs so unresolved Review findings remain marked incomplete or evidence-unavailable
 - Refreshes legacy no-mistakes-managed `post-receive` hooks, installs missing managed hooks, and leaves custom hooks untouched
 - Reapplies per-worktree gate hook-path isolation to existing bare repos when Git supports `config --worktree`, so shared `core.hookspath` writes cannot disable `post-receive`
 - Enables Git push-option support on existing gate repos so per-push options like `no-mistakes.skip=...` keep working after upgrades
+- Leaves current-worktree run directories alone; recovered current-mode runs are marked failed or incomplete instead of being removed
 
 ## Logging
 

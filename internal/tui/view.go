@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
 func (m Model) View() string {
@@ -39,6 +40,7 @@ func (m Model) View() string {
 	}
 	pipelineView := renderPipelineView(m.run, pipelineSteps, leftWidth, m.spinnerFrame, pipelineHeight)
 	banner := renderOutcomeBanner(m.run, m.steps)
+	currentWorktreeWarning := renderCurrentWorktreeWarning(m.run, leftWidth)
 
 	// Action bar between pipeline box and findings/diff per DESIGN.md.
 	hasDiff := false
@@ -60,6 +62,9 @@ func (m Model) View() string {
 			baseSections = append(baseSections, pipelineView)
 			if banner != "" {
 				baseSections = append(baseSections, banner)
+			}
+			if currentWorktreeWarning != "" {
+				baseSections = append(baseSections, currentWorktreeWarning)
 			}
 			if actionBar != "" {
 				baseSections = append(baseSections, actionBar)
@@ -237,6 +242,9 @@ func (m Model) View() string {
 		if banner != "" {
 			leftSections = append(leftSections, banner)
 		}
+		if currentWorktreeWarning != "" {
+			leftSections = append(leftSections, currentWorktreeWarning)
+		}
 		rightSections := make([]string, 0, len(extraSections)+1)
 		if actionBar != "" {
 			rightSections = append(rightSections, actionBar)
@@ -250,12 +258,35 @@ func (m Model) View() string {
 	if banner != "" {
 		sections = append(sections, banner)
 	}
+	if currentWorktreeWarning != "" {
+		sections = append(sections, currentWorktreeWarning)
+	}
 	if actionBar != "" {
 		sections = append(sections, actionBar)
 	}
 	sections = append(sections, extraSections...)
 	sections = append(sections, footer)
 	return setTerminalTitle(m.terminalTitle()) + joinSections(sections, sectionGap)
+}
+
+func renderCurrentWorktreeWarning(run *ipc.RunInfo, width int) string {
+	if run == nil || types.NormalizeWorktreeMode(run.WorktreeMode) != types.WorktreeModeCurrent {
+		return ""
+	}
+	boxWidth := width
+	if boxWidth < 20 {
+		boxWidth = 80
+	}
+	label := run.WorkDirLabel
+	if strings.TrimSpace(label) == "" {
+		label = types.WorktreeModeCurrent.Label()
+	}
+	message := run.CurrentWorktreeWarning
+	if strings.TrimSpace(message) == "" {
+		message = fmt.Sprintf("%s: uses this checkout; pipeline fixes may modify it and commits remain here", label)
+	}
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(ansiYellow))
+	return renderBoxWithStyledTitle(style.Render("Current worktree"), message, boxWidth, "")
 }
 
 func renderFindingsBoxForHeight(raw string, width int, cursor int, selected map[string]bool, boxHeight int) string {

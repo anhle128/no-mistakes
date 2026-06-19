@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,53 @@ func findingsJSON(t *testing.T, items []types.Finding, summary string) string {
 }
 
 func strptr(s string) *string { return &s }
+
+func TestCurrentWorktreeRecoveryHelpUsesRPCData(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		reason   string
+		recovery string
+	}{
+		{
+			name:     "dirty",
+			reason:   types.RejectionDirtyWorktree,
+			recovery: "Commit or remove tracked changes and untracked non-ignored files, then retry",
+		},
+		{
+			name:     "default branch",
+			reason:   types.RejectionDefaultBranch,
+			recovery: "Switch to a feature branch, then retry",
+		},
+		{
+			name:     "missing base",
+			reason:   types.RejectionNoTrustworthyBase,
+			recovery: "Fetch the default branch or fix remote access, then retry",
+		},
+		{
+			name:     "repo mismatch",
+			reason:   types.RejectionRepoMismatch,
+			recovery: "Run no-mistakes init in this checkout, or retry from the registered repo",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(map[string]string{
+				"reason":   tc.reason,
+				"recovery": tc.recovery,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			help := currentWorktreeRecoveryHelp(&ipc.RPCError{
+				Code:    ipc.ErrInvalidParams,
+				Message: "current worktree rejected",
+				Data:    raw,
+			})
+			if len(help) != 1 || help[0] != tc.recovery {
+				t.Fatalf("help = %v, want %q", help, tc.recovery)
+			}
+		})
+	}
+}
 
 func TestRunViewFromDBAwaitingStep(t *testing.T) {
 	run := &db.Run{ID: "r1", Branch: "feature/x", HeadSHA: "abcdef1234567890", Status: types.RunRunning}

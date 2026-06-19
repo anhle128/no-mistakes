@@ -51,7 +51,9 @@ func Execute() int {
 }
 
 func newRootCmd() *cobra.Command {
-	var autoYes bool
+	var yesFlag bool
+	var yoloFlag bool
+	var noWorktree bool
 	var skipValue string
 
 	cmd := &cobra.Command{
@@ -74,12 +76,18 @@ func newRootCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				autoYes := yesFlag || yoloFlag
+				if noWorktree {
+					return attachCurrentWorktreeRun(cmd.Context(), cmd.OutOrStdout(), autoYes, skipSteps)
+				}
 				return attachRun(cmd.Context(), cmd.OutOrStdout(), "", true, autoYes, skipSteps)
 			})
 		},
 	}
 
-	cmd.Flags().BoolVarP(&autoYes, "yes", "y", false, "run setup wizard and accept defaults automatically")
+	cmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "run setup wizard and accept defaults automatically")
+	cmd.Flags().BoolVar(&yoloFlag, "yolo", false, "alias for --yes")
+	cmd.Flags().BoolVar(&noWorktree, "no-worktree", false, "run in the current git worktree instead of a disposable no-mistakes checkout")
 	cmd.Flags().StringVar(&skipValue, "skip", "", "comma-separated pipeline steps to skip for a new run")
 
 	cmd.AddCommand(newInitCmd())

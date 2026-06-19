@@ -1,0 +1,2 @@
+error: "refusing to validate default branch \"main\""
+help[1]: "Switch to a feature branch, then retry"

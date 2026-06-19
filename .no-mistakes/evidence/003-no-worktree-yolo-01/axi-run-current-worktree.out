@@ -1,0 +1,36 @@
+run: running
+  rebase: running
+  rebase: completed
+  review: running
+  review: awaiting_approval
+  review: fixing
+run: completed
+  review: completed
+  test: skipped
+  document: skipped
+  lint: skipped
+  push: skipped
+  pr: skipped
+  ci: skipped
+run:
+  id: "01KVFJ38EQKQNCNANM3MC7Q5JM"
+  branch: feature/current-mode-yolo
+  status: completed
+  head: fe3da5d7
+  worktree_mode: current
+  work_dir_label: repo
+  current_worktree_warning: "repo: uses this checkout; pipeline fixes may modify it and commits remain here"
+  findings: none
+  steps[8]{step,status,findings,duration_ms}:
+    rebase,completed,0,8000
+    review,completed,0,45000
+    test,skipped,0,0
+    document,skipped,0,0
+    lint,skipped,0,0
+    push,skipped,0,0
+    pr,skipped,0,0
+    ci,skipped,0,0
+outcome: passed
+fixes[1]{step,summary}:
+  review,fix applied (no summary recorded)
+help[2]: "Summarize this pipeline run for the user in a concise, easily readable format: what was validated and what was found.",The pipeline fixed findings the original change missed (see `fixes`) - acknowledge the misses and list each fix so the user can review them.

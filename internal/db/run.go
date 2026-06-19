@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/kunchenguid/no-mistakes/internal/types"
@@ -9,56 +10,168 @@ import (
 
 // Run represents a pipeline run.
 type Run struct {
-	ID              string
-	RepoID          string
-	Branch          string
-	HeadSHA         string
-	BaseSHA         string
-	Status          types.RunStatus
-	PRURL           *string
-	Error           *string
-	Intent          *string
-	IntentSource    *string
-	IntentSessionID *string
-	IntentScore     *float64
-	CreatedAt       int64
-	UpdatedAt       int64
+	ID                         string
+	RepoID                     string
+	Branch                     string
+	HeadSHA                    string
+	BaseSHA                    string
+	Status                     types.RunStatus
+	PRURL                      *string
+	Error                      *string
+	WorktreeMode               types.WorktreeMode
+	WorkDir                    *string
+	WorkDirLabel               *string
+	CurrentWorktreeWarning     *string
+	MetadataAvailability       types.MetadataAvailability
+	EvidenceState              types.EvidenceState
+	TerminalReason             *string
+	ReviewBaseRef              *string
+	ReviewBaseRefreshAttempted bool
+	ReviewBaseRefreshError     *string
+	RejectionReason            *string
+	SkipSteps                  []types.StepName
+	Intent                     *string
+	IntentSource               *string
+	IntentSessionID            *string
+	IntentScore                *float64
+	CreatedAt                  int64
+	UpdatedAt                  int64
 }
 
-const runColumns = `id, repo_id, branch, head_sha, base_sha, status, pr_url, error, intent, intent_source, intent_session_id, intent_score, created_at, updated_at`
+const runColumns = `id, repo_id, branch, head_sha, base_sha, status, pr_url, error, worktree_mode, work_dir, work_dir_label, current_worktree_warning, metadata_availability, evidence_state, terminal_reason, review_base_ref, review_base_refresh_attempted, review_base_refresh_error, rejection_reason, skip_steps, intent, intent_source, intent_session_id, intent_score, created_at, updated_at`
 
 func scanRun(row interface {
 	Scan(...any) error
 }, r *Run) error {
-	return row.Scan(
+	var refreshAttempted int
+	var skipStepsJSON *string
+	if err := row.Scan(
 		&r.ID, &r.RepoID, &r.Branch, &r.HeadSHA, &r.BaseSHA, &r.Status,
 		&r.PRURL, &r.Error,
-		&r.Intent, &r.IntentSource, &r.IntentSessionID, &r.IntentScore,
+		&r.WorktreeMode, &r.WorkDir, &r.WorkDirLabel, &r.CurrentWorktreeWarning,
+		&r.MetadataAvailability, &r.EvidenceState, &r.TerminalReason,
+		&r.ReviewBaseRef, &refreshAttempted, &r.ReviewBaseRefreshError, &r.RejectionReason,
+		&skipStepsJSON, &r.Intent, &r.IntentSource, &r.IntentSessionID, &r.IntentScore,
 		&r.CreatedAt, &r.UpdatedAt,
-	)
+	); err != nil {
+		return err
+	}
+	if skipStepsJSON != nil && *skipStepsJSON != "" {
+		if err := json.Unmarshal([]byte(*skipStepsJSON), &r.SkipSteps); err != nil {
+			return fmt.Errorf("decode run skip steps: %w", err)
+		}
+	}
+	r.WorktreeMode = types.NormalizeWorktreeMode(r.WorktreeMode)
+	r.MetadataAvailability = types.NormalizeMetadataAvailability(r.MetadataAvailability)
+	r.EvidenceState = types.NormalizeEvidenceState(r.EvidenceState)
+	r.ReviewBaseRefreshAttempted = refreshAttempted != 0
+	return nil
+}
+
+// RunInsertOptions carries optional run metadata. The zero value preserves the
+// historical isolated-worktree run shape.
+type RunInsertOptions struct {
+	WorktreeMode               types.WorktreeMode
+	WorkDir                    string
+	WorkDirLabel               string
+	CurrentWorktreeWarning     string
+	MetadataAvailability       types.MetadataAvailability
+	EvidenceState              types.EvidenceState
+	ReviewBaseRef              string
+	ReviewBaseRefreshAttempted bool
+	ReviewBaseRefreshError     string
+	RejectionReason            string
+	SkipSteps                  []types.StepName
 }
 
 // InsertRun creates a new run record.
 func (d *DB) InsertRun(repoID, branch, headSHA, baseSHA string) (*Run, error) {
+	return d.InsertRunWithOptions(repoID, branch, headSHA, baseSHA, RunInsertOptions{})
+}
+
+// InsertRunWithOptions creates a run record with explicit execution metadata.
+func (d *DB) InsertRunWithOptions(repoID, branch, headSHA, baseSHA string, opts RunInsertOptions) (*Run, error) {
 	ts := now()
-	r := &Run{
-		ID:        newID(),
-		RepoID:    repoID,
-		Branch:    branch,
-		HeadSHA:   headSHA,
-		BaseSHA:   baseSHA,
-		Status:    types.RunPending,
-		CreatedAt: ts,
-		UpdatedAt: ts,
+	mode := types.NormalizeWorktreeMode(opts.WorktreeMode)
+	if mode == "" {
+		mode = types.WorktreeModeIsolated
 	}
-	_, err := d.sql.Exec(
-		`INSERT INTO runs (id, repo_id, branch, head_sha, base_sha, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.RepoID, r.Branch, r.HeadSHA, r.BaseSHA, r.Status, r.CreatedAt, r.UpdatedAt,
+	metadataAvailability := types.NormalizeMetadataAvailability(opts.MetadataAvailability)
+	evidenceState := types.NormalizeEvidenceState(opts.EvidenceState)
+	workDir := stringPtrOrNil(opts.WorkDir)
+	workDirLabel := stringPtrOrNil(opts.WorkDirLabel)
+	if workDirLabel == nil {
+		label := mode.Label()
+		workDirLabel = &label
+	}
+	warning := stringPtrOrNil(opts.CurrentWorktreeWarning)
+	reviewBaseRef := stringPtrOrNil(opts.ReviewBaseRef)
+	reviewBaseRefreshError := stringPtrOrNil(opts.ReviewBaseRefreshError)
+	rejectionReason := stringPtrOrNil(opts.RejectionReason)
+	skipStepsJSON, err := skipStepsJSONString(opts.SkipSteps)
+	if err != nil {
+		return nil, err
+	}
+	r := &Run{
+		ID:                         newID(),
+		RepoID:                     repoID,
+		Branch:                     branch,
+		HeadSHA:                    headSHA,
+		BaseSHA:                    baseSHA,
+		Status:                     types.RunPending,
+		WorktreeMode:               mode,
+		WorkDir:                    workDir,
+		WorkDirLabel:               workDirLabel,
+		CurrentWorktreeWarning:     warning,
+		MetadataAvailability:       metadataAvailability,
+		EvidenceState:              evidenceState,
+		ReviewBaseRef:              reviewBaseRef,
+		ReviewBaseRefreshAttempted: opts.ReviewBaseRefreshAttempted,
+		ReviewBaseRefreshError:     reviewBaseRefreshError,
+		RejectionReason:            rejectionReason,
+		SkipSteps:                  append([]types.StepName(nil), opts.SkipSteps...),
+		CreatedAt:                  ts,
+		UpdatedAt:                  ts,
+	}
+	_, err = d.sql.Exec(
+		`INSERT INTO runs (id, repo_id, branch, head_sha, base_sha, status, worktree_mode, work_dir, work_dir_label, current_worktree_warning, metadata_availability, evidence_state, review_base_ref, review_base_refresh_attempted, review_base_refresh_error, rejection_reason, skip_steps, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.RepoID, r.Branch, r.HeadSHA, r.BaseSHA, r.Status,
+		r.WorktreeMode, r.WorkDir, r.WorkDirLabel, r.CurrentWorktreeWarning,
+		r.MetadataAvailability, r.EvidenceState,
+		r.ReviewBaseRef, boolToInt(r.ReviewBaseRefreshAttempted), r.ReviewBaseRefreshError, r.RejectionReason,
+		skipStepsJSON,
+		r.CreatedAt, r.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert run: %w", err)
 	}
 	return r, nil
+}
+
+func stringPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func skipStepsJSONString(steps []types.StepName) (*string, error) {
+	if len(steps) == 0 {
+		return nil, nil
+	}
+	raw, err := json.Marshal(steps)
+	if err != nil {
+		return nil, fmt.Errorf("encode run skip steps: %w", err)
+	}
+	encoded := string(raw)
+	return &encoded, nil
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 // GetRun returns a run by ID.
@@ -181,6 +294,19 @@ func (d *DB) UpdateRunErrorStatus(id, errMsg string, status types.RunStatus) err
 	return nil
 }
 
+// UpdateRunTerminalReason records a structured terminal reason and evidence
+// state without changing the public status.
+func (d *DB) UpdateRunTerminalReason(id string, reason string, evidenceState types.EvidenceState) error {
+	_, err := d.sql.Exec(
+		`UPDATE runs SET terminal_reason = ?, evidence_state = ?, updated_at = ? WHERE id = ?`,
+		reason, types.NormalizeEvidenceState(evidenceState), now(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update run terminal reason: %w", err)
+	}
+	return nil
+}
+
 // RunIntent carries the four intent-related columns persisted on a run.
 type RunIntent struct {
 	Summary   string
@@ -225,8 +351,8 @@ func (d *DB) RecoverStaleRuns(errMsg string) (int, error) {
 
 	// Fail stale runs.
 	result, err := tx.Exec(
-		`UPDATE runs SET status = ?, error = ?, updated_at = ? WHERE status IN (?, ?)`,
-		types.RunFailed, errMsg, ts,
+		`UPDATE runs SET status = ?, error = ?, terminal_reason = ?, evidence_state = ?, updated_at = ? WHERE status IN (?, ?)`,
+		types.RunFailed, errMsg, types.RunTerminalReasonDaemonCrashed, types.EvidenceIncomplete, ts,
 		types.RunPending, types.RunRunning,
 	)
 	if err != nil {

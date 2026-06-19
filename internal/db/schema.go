@@ -10,16 +10,28 @@ CREATE TABLE IF NOT EXISTS repos (
 );
 
 CREATE TABLE IF NOT EXISTS runs (
-    id         TEXT PRIMARY KEY,
-    repo_id    TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-    branch     TEXT NOT NULL,
-    head_sha   TEXT NOT NULL,
-    base_sha   TEXT NOT NULL,
-    status     TEXT NOT NULL DEFAULT 'pending',
-    pr_url     TEXT,
-    error      TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    id                            TEXT PRIMARY KEY,
+    repo_id                       TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    branch                        TEXT NOT NULL,
+    head_sha                      TEXT NOT NULL,
+    base_sha                      TEXT NOT NULL,
+    status                        TEXT NOT NULL DEFAULT 'pending',
+    pr_url                        TEXT,
+    error                         TEXT,
+    worktree_mode                 TEXT NOT NULL DEFAULT 'isolated',
+    work_dir                      TEXT,
+    work_dir_label                TEXT,
+    current_worktree_warning      TEXT,
+    metadata_availability         TEXT NOT NULL DEFAULT 'available',
+    evidence_state                TEXT NOT NULL DEFAULT 'complete',
+    terminal_reason               TEXT,
+    review_base_ref               TEXT,
+    review_base_refresh_attempted INTEGER NOT NULL DEFAULT 0,
+    review_base_refresh_error     TEXT,
+    rejection_reason              TEXT,
+    skip_steps                    TEXT,
+    created_at                    INTEGER NOT NULL,
+    updated_at                    INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS step_results (
@@ -144,4 +156,16 @@ var migrationStatements = []string{
 		reason         TEXT,
 		created_at     INTEGER NOT NULL
 	)`,
+	`ALTER TABLE runs ADD COLUMN worktree_mode TEXT NOT NULL DEFAULT 'isolated'`,
+	`ALTER TABLE runs ADD COLUMN work_dir TEXT`,
+	`ALTER TABLE runs ADD COLUMN work_dir_label TEXT`,
+	`ALTER TABLE runs ADD COLUMN current_worktree_warning TEXT`,
+	`ALTER TABLE runs ADD COLUMN metadata_availability TEXT NOT NULL DEFAULT 'available'`,
+	`ALTER TABLE runs ADD COLUMN evidence_state TEXT NOT NULL DEFAULT 'complete'`,
+	`ALTER TABLE runs ADD COLUMN terminal_reason TEXT`,
+	`ALTER TABLE runs ADD COLUMN review_base_ref TEXT`,
+	`ALTER TABLE runs ADD COLUMN review_base_refresh_attempted INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE runs ADD COLUMN review_base_refresh_error TEXT`,
+	`ALTER TABLE runs ADD COLUMN rejection_reason TEXT`,
+	`ALTER TABLE runs ADD COLUMN skip_steps TEXT`,
 }

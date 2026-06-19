@@ -31,6 +31,65 @@ func TestRunInsertAndGet(t *testing.T) {
 	if got.HeadSHA != "abc123" {
 		t.Errorf("head sha = %q, want %q", got.HeadSHA, "abc123")
 	}
+	if got.WorktreeMode != types.WorktreeModeIsolated {
+		t.Errorf("worktree mode = %q, want isolated", got.WorktreeMode)
+	}
+	if got.WorkDirLabel == nil || *got.WorkDirLabel != types.WorktreeModeIsolated.Label() {
+		t.Errorf("work dir label = %v, want isolated label", got.WorkDirLabel)
+	}
+	if got.MetadataAvailability != types.MetadataAvailable {
+		t.Errorf("metadata availability = %q, want available", got.MetadataAvailability)
+	}
+	if got.EvidenceState != types.EvidenceComplete {
+		t.Errorf("evidence state = %q, want complete", got.EvidenceState)
+	}
+}
+
+func TestRunInsertWithCurrentWorktreeMetadata(t *testing.T) {
+	d := openTestDB(t)
+	repo, _ := d.InsertRepo("/home/user/project", "git@github.com:user/project.git", "main")
+
+	run, err := d.InsertRunWithOptions(repo.ID, "feature", "abc123", "def456", RunInsertOptions{
+		WorktreeMode:               types.WorktreeModeCurrent,
+		WorkDir:                    "/home/user/project",
+		WorkDirLabel:               "project",
+		CurrentWorktreeWarning:     "uses this checkout; fixes may modify it",
+		ReviewBaseRef:              "origin/main",
+		ReviewBaseRefreshAttempted: true,
+		ReviewBaseRefreshError:     "network down",
+		SkipSteps:                  []types.StepName{types.StepReview, types.StepLint},
+	})
+	if err != nil {
+		t.Fatalf("insert current run: %v", err)
+	}
+	got, err := d.GetRun(run.ID)
+	if err != nil {
+		t.Fatalf("get current run: %v", err)
+	}
+	if got.WorktreeMode != types.WorktreeModeCurrent {
+		t.Fatalf("worktree mode = %q, want current", got.WorktreeMode)
+	}
+	if got.WorkDir == nil || *got.WorkDir != "/home/user/project" {
+		t.Fatalf("work dir = %v, want /home/user/project", got.WorkDir)
+	}
+	if got.WorkDirLabel == nil || *got.WorkDirLabel != "project" {
+		t.Fatalf("work dir label = %v, want project", got.WorkDirLabel)
+	}
+	if got.CurrentWorktreeWarning == nil || *got.CurrentWorktreeWarning == "" {
+		t.Fatal("expected current worktree warning")
+	}
+	if got.ReviewBaseRef == nil || *got.ReviewBaseRef != "origin/main" {
+		t.Fatalf("review base ref = %v, want origin/main", got.ReviewBaseRef)
+	}
+	if !got.ReviewBaseRefreshAttempted {
+		t.Fatal("expected review-base refresh attempted")
+	}
+	if got.ReviewBaseRefreshError == nil || *got.ReviewBaseRefreshError != "network down" {
+		t.Fatalf("review base refresh error = %v, want network down", got.ReviewBaseRefreshError)
+	}
+	if len(got.SkipSteps) != 2 || got.SkipSteps[0] != types.StepReview || got.SkipSteps[1] != types.StepLint {
+		t.Fatalf("skip steps = %v, want [review lint]", got.SkipSteps)
+	}
 }
 
 func TestRunGetNotFound(t *testing.T) {
@@ -294,6 +353,12 @@ func TestRecoverStaleRunsMarksRunsFailed(t *testing.T) {
 	}
 	if got.Error == nil || *got.Error != "daemon crashed" {
 		t.Errorf("pending run error = %v, want %q", got.Error, "daemon crashed")
+	}
+	if got.TerminalReason == nil || *got.TerminalReason != types.RunTerminalReasonDaemonCrashed {
+		t.Errorf("pending terminal reason = %v, want daemon crashed", got.TerminalReason)
+	}
+	if got.EvidenceState != types.EvidenceIncomplete {
+		t.Errorf("pending evidence state = %q, want incomplete", got.EvidenceState)
 	}
 
 	got, _ = d.GetRun(runningRun.ID)

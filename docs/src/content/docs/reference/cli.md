@@ -5,7 +5,7 @@ description: Complete reference for all no-mistakes commands and flags.
 
 ## no-mistakes
 
-Attach to the active pipeline run for the current branch when one exists. If none exists, bare `no-mistakes` can start the setup wizard to create a branch, commit changes, push through the gate, wait for the daemon to register the new run, and then attach. If the push succeeds but no run is registered, that wizard path now exits with an explicit error instead of silently falling through. By default this wizard path is interactive and only runs in a TTY session. In non-interactive contexts, bare `no-mistakes` falls back to showing the last 5 runs inline unless you pass `-y` or `--yes` to run the wizard and accept defaults automatically. When a TTY is available, `-y` keeps the wizard visible, shows a brief `waiting for run…` state after push, and auto-advances the default path; without a TTY it falls back to the headless path.
+Attach to the active pipeline run for the current branch when one exists. If none exists, bare `no-mistakes` can start the setup wizard to create a branch, commit changes, push through the gate, wait for the daemon to register the new run, and then attach. If the push succeeds but no run is registered, that wizard path now exits with an explicit error instead of silently falling through. By default this wizard path is interactive and only runs in a TTY session. In non-interactive contexts, bare `no-mistakes` falls back to showing the last 5 runs inline unless you pass `-y`, `--yes`, or `--yolo` to run the wizard and accept defaults automatically. When a TTY is available, `-y` / `--yes` / `--yolo` keeps the wizard visible, shows a brief `waiting for run…` state after push, and auto-advances the default path; without a TTY it falls back to the headless path.
 
 ```sh
 no-mistakes
@@ -15,11 +15,14 @@ no-mistakes --skip test,lint
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `-y`, `--yes` | `bool` | `false` | Run setup wizard and accept defaults automatically |
+| `--yolo` | `bool` | `false` | Alias for `--yes`; does not grant any extra approval behavior |
+| `--no-worktree` | `bool` | `false` | Request current-worktree execution; new starts need explicit intent through AXI |
 | `--skip` | `string` | (none) | Comma-separated pipeline steps to skip for a new run |
 
 Unlike `no-mistakes attach`, bare `no-mistakes` only auto-attaches to an active run on the current branch.
 `--skip` only applies when bare `no-mistakes` starts a new pipeline run through the wizard; it does not skip a step on an already-active run.
 Valid step names are `intent`, `rebase`, `review`, `test`, `document`, `lint`, `push`, `pr`, and `ci`.
+The root command has no `--intent` flag. When `--no-worktree` would need to create a new run, it fails before run creation with guidance to use `no-mistakes axi run --intent "..." --no-worktree`; no-mistakes does not fabricate intent for an unattended current-checkout run. Current-worktree execution requires an initialized, clean, non-default branch with a trustworthy review base. Automated fixes and commits remain in that checkout, and no-mistakes will not clean up the directory afterward.
 
 ## no-mistakes init
 
@@ -66,12 +69,15 @@ An active run on another branch does not block starting validation for the curre
 no-mistakes axi run --intent "the user's goal"
 no-mistakes axi run --intent "the user's goal" --skip test,lint
 no-mistakes axi run --intent "the user's goal" --yes
+no-mistakes axi run --intent "the user's goal" --no-worktree --yolo
 ```
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--intent` | `string` | (none) | What the user set out to accomplish; required to start a new run |
 | `-y`, `--yes` | `bool` | `false` | Auto-resolve every gate until a decision point or outcome |
+| `--yolo` | `bool` | `false` | Alias for `--yes`; does not grant any extra approval behavior |
+| `--no-worktree` | `bool` | `false` | Run directly in the current git worktree root instead of a disposable no-mistakes worktree |
 | `--skip` | `string` | (none) | Comma-separated pipeline steps to skip |
 
 `--intent` is not a description of the diff.
@@ -80,7 +86,9 @@ Err on the side of completeness: include the goal, important decisions and trade
 When starting a new run, `axi run` refuses the default branch and uncommitted working trees with actionable errors instead of auto-branching or auto-committing.
 If a run cannot be started after the gate push, the error includes the latest `<gate>/notify-push.log` tail when that hook diagnostic log exists.
 Reattaching to an in-flight run does not require `--intent`.
+With `--no-worktree`, `axi run` starts through daemon IPC instead of a gate push and executes in the canonical current git worktree root. It rejects dirty tracked files, untracked non-ignored files, detached or unborn HEADs, the default branch, and missing trustworthy default-branch base evidence before pipeline execution starts. If a compatible current-worktree run is already active for the same branch, head, work directory, review base, approval mode, skip list, and intent shape, `axi run` resumes it; incompatible active runs return a structured conflict instead of cancelling them.
 With `--yes`, `axi run` treats both `action: auto-fix` and `action: ask-user` findings as standing consent for the pipeline to fix them by selecting every finding, then accepts the resulting fix review.
+`--yolo` is exactly the same approval mode as `--yes`; passing both is valid and still means only the existing auto-resolution behavior.
 Gates with no findings or only `action: no-op` findings are approved as-is, and each step is fixed at most once so unresolved findings do not loop forever.
 Without `--yes`, an agent driving `axi run` should stop when a gate contains `action: ask-user` findings and relay each finding's ID, file, and full description to the user before responding.
 When the CI step is still monitoring an open PR and checks are green, `axi run` exits successfully with `outcome: checks-passed` instead of waiting for a human merge.
@@ -125,6 +133,8 @@ no-mistakes axi status --run <id>
 |---|---|---|---|
 | `--run` | `string` | resolved run | Inspect a specific run ID |
 
+Current-worktree runs include `worktree_mode: current`, a safe `work_dir_label`, a `current_worktree_warning`, and evidence or terminal-state fields when recovery information is incomplete.
+
 ## no-mistakes axi logs
 
 Show the log output of one pipeline step.
@@ -162,7 +172,7 @@ Remove the gate from the current repository.
 no-mistakes eject
 ```
 
-Removes the `no-mistakes` remote, deletes the bare repo directory, cleans up worktrees, and deletes the database record (cascades to runs and steps).
+Removes the `no-mistakes` remote, deletes the bare repo directory, cleans up managed disposable worktrees, and deletes the database record (cascades to runs and steps).
 It does not remove repo-local agent skill files created by `init`.
 
 ## no-mistakes attach
@@ -201,7 +211,7 @@ Displays:
 - Repo path and upstream URL
 - Gate path
 - Daemon status (running/stopped, PID)
-- Active run details: ID, branch, status, head SHA, start time
+- Active run details: ID, branch, status, head SHA, execution mode, worktree label, warnings, degraded evidence or terminal reason when present, and start time
 
 ## no-mistakes runs
 
@@ -215,7 +225,7 @@ no-mistakes runs [--limit <n>]
 |---|---|---|---|
 | `--limit` | `int` | `10` | Maximum number of runs to display |
 
-Shows runs newest-first with branch, status (styled), short SHA, timestamp, and PR URL if set.
+Shows runs newest-first with branch, status (styled), worktree label, short SHA, timestamp, and PR URL if set.
 
 ## no-mistakes stats
 

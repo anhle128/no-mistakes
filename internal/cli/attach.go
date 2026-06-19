@@ -9,6 +9,7 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/daemon"
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/tui"
@@ -148,6 +149,49 @@ func attachRun(ctx context.Context, w io.Writer, runID string, rootDefault bool,
 	})
 
 	return runTUI(p.Socket(), client, run, update.CachedLatestVersion())
+}
+
+func attachCurrentWorktreeRun(ctx context.Context, w io.Writer, autoYes bool, skipSteps []types.StepName) error {
+	env, err := openAxiEnv(true)
+	if err != nil {
+		return err
+	}
+	defer env.close()
+
+	branch, err := git.CurrentBranch(ctx, ".")
+	if err != nil {
+		return fmt.Errorf("get current branch: %w", err)
+	}
+	if branch == "HEAD" {
+		return fmt.Errorf("%s: detached HEAD", types.RejectionDetachedHead)
+	}
+	headSHA, err := git.Run(ctx, ".", "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("get current HEAD: %w", err)
+	}
+	runID, err := ensureCurrentWorktreeRun(ctx, env, branch, headSHA, skipSteps, "", true)
+	if err != nil {
+		return err
+	}
+	var result ipc.GetRunResult
+	if err := env.client.Call(ipc.MethodGetRun, &ipc.GetRunParams{RunID: runID}, &result); err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	if result.Run == nil {
+		return fmt.Errorf("run not found after current-worktree start: %s", runID)
+	}
+	if result.Run.CurrentWorktreeWarning != "" {
+		fmt.Fprintf(w, "  %s\n", sYellow.Render(result.Run.CurrentWorktreeWarning))
+	}
+
+	telemetry.Pageview("/tui", telemetry.Fields{
+		"entrypoint":      "root-current-worktree",
+		"run_status":      result.Run.Status,
+		"explicit_run_id": false,
+		"auto_yes":        autoYes,
+	})
+
+	return runTUI(env.p.Socket(), env.client, result.Run, update.CachedLatestVersion())
 }
 
 func attachEntrypoint(rootDefault bool, runID string) string {

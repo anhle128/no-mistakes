@@ -56,6 +56,22 @@ func newStatusCmd() *cobra.Command {
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render(" branch:"), activeRun.Branch)
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render(" status:"), runStatusStyle(activeRun.Status))
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render("   head:"), sDim.Render(sha))
+					mode := activeRun.WorktreeMode
+					label := mode.Label()
+					if activeRun.WorkDirLabel != nil && *activeRun.WorkDirLabel != "" {
+						label = *activeRun.WorkDirLabel
+					}
+					fmt.Fprintf(w, "  %s  %s\n", sDim.Render("   mode:"), mode.Label())
+					fmt.Fprintf(w, "  %s  %s\n", sDim.Render("workdir:"), label)
+					if activeRun.CurrentWorktreeWarning != nil && *activeRun.CurrentWorktreeWarning != "" {
+						fmt.Fprintf(w, "  %s  %s\n", sDim.Render("warning:"), sYellow.Render(*activeRun.CurrentWorktreeWarning))
+					}
+					if activeRun.EvidenceState != "" && activeRun.EvidenceState != "complete" {
+						fmt.Fprintf(w, "  %s  %s\n", sDim.Render("evidence:"), activeRun.EvidenceState)
+					}
+					if activeRun.TerminalReason != nil && *activeRun.TerminalReason != "" {
+						fmt.Fprintf(w, "  %s  %s\n", sDim.Render(" reason:"), *activeRun.TerminalReason)
+					}
 					fmt.Fprintf(w, "  %s  %s\n", sDim.Render("started:"), sDim.Render(ts))
 				} else {
 					fmt.Fprintf(w, "\n  %s\n", sDim.Render("no active run"))

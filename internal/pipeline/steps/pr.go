@@ -118,8 +118,9 @@ func (s *PRStep) buildPRContent(sctx *pipeline.StepContext, branch, baseSHA stri
 	commitLog, _ := git.Log(ctx, sctx.WorkDir, baseSHA, sctx.Run.HeadSHA)
 	diffStat, _ := git.Run(ctx, sctx.WorkDir, "diff", "--stat", baseSHA+".."+sctx.Run.HeadSHA)
 
-	// Build the deterministic sections from step rounds.
+	// Build the deterministic sections from step rounds and run metadata.
 	pipelineMD, riskLine, testingMD := s.buildPipelineSection(sctx)
+	runContextMD := buildRunContextSection(sctx)
 
 	// Build pipeline context for the agent prompt so it can reference findings in the summary.
 	pipelineContext := ""
@@ -150,7 +151,7 @@ Commit history:
 %s
 
 Diff stat:
-%s%s%s%s`, branch, baseSHA, sctx.Run.HeadSHA, sctx.Repo.DefaultBranch, conventional.ReleaseTypeRule, commitLog, diffStat, pipelineContext, userIntentPromptSection(sctx), executionContextPromptSection())
+%s%s%s%s`, branch, baseSHA, sctx.Run.HeadSHA, sctx.Repo.DefaultBranch, conventional.ReleaseTypeRule, commitLog, diffStat, pipelineContext, userIntentPromptSection(sctx), executionContextPromptSection(sctx))
 
 	result, err := sctx.Agent.Run(ctx, agent.RunOpts{
 		Prompt:     prompt,
@@ -160,7 +161,7 @@ Diff stat:
 	})
 	if err != nil {
 		slog.Warn("agent failed for PR content, using fallback", "error", err)
-		return fallbackPRContent(sctx, branch, commitLog, riskLine, testingMD, pipelineMD), nil
+		return fallbackPRContent(sctx, branch, commitLog, riskLine, testingMD, runContextMD, pipelineMD), nil
 	}
 
 	var content prContent
@@ -176,14 +177,14 @@ Diff stat:
 				if content.Title != originalTitle {
 					slog.Warn("tightened agent PR title type", "from", originalTitle, "to", content.Title)
 				}
-				content.Body = appendGeneratedSections(content.Body, riskLine, testingMD, pipelineMD)
+				content.Body = appendGeneratedSections(content.Body, riskLine, testingMD, runContextMD, pipelineMD)
 				content.Body = prependIntentSection(content.Body, sctx)
 				return content, nil
 			}
 		}
 	}
 
-	return fallbackPRContent(sctx, branch, commitLog, riskLine, testingMD, pipelineMD), nil
+	return fallbackPRContent(sctx, branch, commitLog, riskLine, testingMD, runContextMD, pipelineMD), nil
 }
 
 // buildPipelineSection queries step results and rounds from the DB and
@@ -250,7 +251,7 @@ func unwrapNestedPRBody(body string) string {
 }
 
 // appendGeneratedSections appends deterministic sections after the agent's body.
-func appendGeneratedSections(body, riskLine, testingMD, pipelineMD string) string {
+func appendGeneratedSections(body, riskLine, testingMD, runContextMD, pipelineMD string) string {
 	body = stripGeneratedSections(body)
 	if riskLine != "" {
 		body += "\n\n## Risk Assessment\n\n" + riskLine
@@ -258,10 +259,76 @@ func appendGeneratedSections(body, riskLine, testingMD, pipelineMD string) strin
 	if testingMD != "" {
 		body += "\n\n" + testingMD
 	}
+	if runContextMD != "" {
+		body += "\n\n" + runContextMD
+	}
 	if pipelineMD != "" {
 		body += "\n\n" + pipelineMD
 	}
 	return body
+}
+
+func buildRunContextSection(sctx *pipeline.StepContext) string {
+	if sctx == nil || sctx.Run == nil {
+		return ""
+	}
+	if types.NormalizeWorktreeMode(sctx.Run.WorktreeMode) != types.WorktreeModeCurrent {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Run Context\n\n")
+	b.WriteString("- Mode: ")
+	b.WriteString(types.WorktreeModeCurrent.Label())
+	b.WriteString("\n")
+
+	label := trimStringPtr(sctx.Run.WorkDirLabel)
+	if label != "" {
+		b.WriteString("- Work directory: ")
+		b.WriteString(label)
+		b.WriteString("\n")
+	}
+
+	if strings.TrimSpace(sctx.Run.ID) != "" {
+		b.WriteString("- Run: ")
+		b.WriteString(strings.TrimSpace(sctx.Run.ID))
+		b.WriteString("\n")
+	}
+	reviewBaseRef := trimStringPtr(sctx.Run.ReviewBaseRef)
+	if reviewBaseRef != "" {
+		b.WriteString("- Review base: ")
+		b.WriteString(reviewBaseRef)
+		b.WriteString("\n")
+	}
+
+	evidenceState := types.NormalizeEvidenceState(sctx.Run.EvidenceState)
+	if evidenceState != types.EvidenceComplete {
+		b.WriteString("- Evidence state: ")
+		b.WriteString(string(evidenceState))
+		b.WriteString("\n")
+	}
+	terminalReason := trimStringPtr(sctx.Run.TerminalReason)
+	if terminalReason != "" {
+		b.WriteString("- Terminal reason: ")
+		b.WriteString(terminalReason)
+		b.WriteString("\n")
+	}
+
+	warning := trimStringPtr(sctx.Run.CurrentWorktreeWarning)
+	if warning != "" {
+		b.WriteString("- Warning: ")
+		b.WriteString(warning)
+		b.WriteString("\n")
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func trimStringPtr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
 }
 
 func stripGeneratedSections(body string) string {
@@ -308,7 +375,7 @@ func isGeneratedSectionHeading(line string) bool {
 	heading = strings.ToLower(heading)
 
 	switch heading {
-	case "intent", "risk assessment", "testing", "tests", "pipeline":
+	case "intent", "risk assessment", "testing", "tests", "run context", "pipeline":
 		return true
 	default:
 		return false
@@ -332,7 +399,7 @@ func prependIntentSection(body string, sctx *pipeline.StepContext) string {
 	return section + "\n\n" + body
 }
 
-func fallbackPRContent(sctx *pipeline.StepContext, branch, commitLog, riskLine, testingMD, pipelineMD string) prContent {
+func fallbackPRContent(sctx *pipeline.StepContext, branch, commitLog, riskLine, testingMD, runContextMD, pipelineMD string) prContent {
 	title := ""
 	for _, line := range strings.Split(commitLog, "\n") {
 		line = strings.TrimSpace(line)
@@ -356,7 +423,7 @@ func fallbackPRContent(sctx *pipeline.StepContext, branch, commitLog, riskLine, 
 	if body == "## What Changed\n\n" {
 		body = fmt.Sprintf("## What Changed\n\n- %s", title)
 	}
-	body = appendGeneratedSections(body, riskLine, testingMD, pipelineMD)
+	body = appendGeneratedSections(body, riskLine, testingMD, runContextMD, pipelineMD)
 	body = prependIntentSection(body, sctx)
 	return prContent{
 		Title: title,

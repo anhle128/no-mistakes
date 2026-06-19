@@ -1,0 +1,166 @@
+
+### build test binary inside worktree temp
+binary=/Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes
+
+### create clean repo with origin/main
+Initialized empty Git repository in /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/origin.git/
+Initialized empty Git repository in /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo/.git/
+[main (root-commit) caf8880] initial commit
+ 2 files changed, 3 insertions(+)
+ create mode 100644 .no-mistakes.yaml
+ create mode 100644 README.md
+To /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/origin.git
+ * [new branch]      main -> main
+branch 'main' set up to track 'origin/main'.
+NM_HOME during init=.nmhome (short relative socket path)
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes init
+_  _ ____    _  _ _ ____ ___ ____ _  _ ____ ____
+|\ | |  |    |\/| | [__   |  |__| |_/  |___ [__ 
+| \| |__|    |  | | ___]  |  |  | | \_ |___ ___]
+
+  ✓ Gate initialized
+
+    repo  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo
+    gate  no-mistakes → .nmhome/repos/d3adcccd0601.git
+  remote  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/origin.git
+   skill  /no-mistakes installed for agents at user level
+
+  Push through the gate with:
+  git push no-mistakes <branch>
+
+### create feature branch and run from nested subdirectory
+Switched to a new branch 'feature/current-mode-yolo'
+[feature/current-mode-yolo fe3da5d] add current mode fixture
+ 1 file changed, 1 insertion(+)
+ create mode 100644 feature.txt
+nested_pwd=/Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo/nested/dir
+repo_root=/Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo
+NM_HOME during nested commands=../../.nmhome
+runs_before_root_missing_intent=0
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes --no-worktree --yolo (expected failure)
+--intent is required to start a run
+[exit 1]
+runs_after_root_missing_intent=0
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes axi run --intent validate current-worktree mode from nested directory --no-worktree --yolo --skip test,document,lint,push,pr,ci
+run: running
+  rebase: running
+  rebase: completed
+  review: running
+  review: awaiting_approval
+  review: fixing
+run: completed
+  review: completed
+  test: skipped
+  document: skipped
+  lint: skipped
+  push: skipped
+  pr: skipped
+  ci: skipped
+run:
+  id: "01KVFJ38EQKQNCNANM3MC7Q5JM"
+  branch: feature/current-mode-yolo
+  status: completed
+  head: fe3da5d7
+  worktree_mode: current
+  work_dir_label: repo
+  current_worktree_warning: "repo: uses this checkout; pipeline fixes may modify it and commits remain here"
+  findings: none
+  steps[8]{step,status,findings,duration_ms}:
+    rebase,completed,0,8000
+    review,completed,0,45000
+    test,skipped,0,0
+    document,skipped,0,0
+    lint,skipped,0,0
+    push,skipped,0,0
+    pr,skipped,0,0
+    ci,skipped,0,0
+outcome: passed
+fixes[1]{step,summary}:
+  review,fix applied (no summary recorded)
+help[2]: "Summarize this pipeline run for the user in a concise, easily readable format: what was validated and what was found.",The pipeline fixed findings the original change missed (see `fixes`) - acknowledge the misses and list each fix so the user can review them.
+[exit 0]
+run_id=01KVFJ38EQKQNCNANM3MC7Q5JM
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes axi status --run 01KVFJ38EQKQNCNANM3MC7Q5JM
+run:
+  id: "01KVFJ38EQKQNCNANM3MC7Q5JM"
+  branch: feature/current-mode-yolo
+  status: completed
+  head: fe3da5d7
+  worktree_mode: current
+  work_dir_label: repo
+  current_worktree_warning: "repo: uses this checkout; pipeline fixes may modify it and commits remain here"
+  findings: none
+  steps[8]{step,status,findings,duration_ms}:
+    rebase,completed,0,8000
+    review,completed,0,45000
+    test,skipped,0,0
+    document,skipped,0,0
+    lint,skipped,0,0
+    push,skipped,0,0
+    pr,skipped,0,0
+    ci,skipped,0,0
+outcome: passed
+[exit 0]
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes axi
+bin: /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach upstream. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo
+current_branch: feature/current-mode-yolo
+daemon: running
+count: 1 of 1 total
+runs[1]{id,branch,status,head,worktree_mode,work_dir_label,pr}:
+  "01KVFJ38EQKQNCNANM3MC7Q5JM",feature/current-mode-yolo,completed,fe3da5d7,current,repo,""
+help[1]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes"
+[exit 0]
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes runs
+  completed    feature/current-mode-yolo fe3da5d7  repo                           2026-06-19 16:06
+[exit 0]
+
+### persist metadata snapshot and no-managed-worktree proof
+[{"id":"01KVFJ38EQKQNCNANM3MC7Q5JM","branch":"feature/current-mode-yolo","status":"completed","worktree_mode":"current","work_dir":"/Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo","work_dir_label":"repo","current_worktree_warning":"repo: uses this checkout; pipeline fixes may modify it and commits remain here","review_base_ref":"origin/main","review_base_refresh_attempted":0,"metadata_availability":"available","evidence_state":"complete","skip_steps":"[\"test\",\"document\",\"lint\",\"push\",\"pr\",\"ci\"]","intent":"validate current-worktree mode from nested directory","intent_source":"agent"}]
+managed_worktree_for_run=/Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo/.nmhome/worktrees/d3adcccd0601/01KVFJ38EQKQNCNANM3MC7Q5JM
+managed worktree absent for current-mode run
+worktrees_dir_entries:
+current worktree root still exists: /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/repo
+
+### dirty current-worktree rejection does not create a run
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes axi run --intent dirty rejection --no-worktree --yolo (expected failure)
+error: current worktree is not clean
+help[1]: "Commit or remove tracked changes and untracked non-ignored files, then retry"
+[exit 1]
+runs_before_dirty=1
+runs_after_dirty=1
+
+### default branch current-worktree rejection does not create a run
+Switched to branch 'main'
+Your branch is up to date with 'origin/main'.
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes axi run --intent default branch rejection --no-worktree --yolo (expected failure)
+error: "refusing to validate default branch \"main\""
+help[1]: "Switch to a feature branch, then retry"
+[exit 1]
+runs_before_default=1
+runs_after_default=1
+Switched to branch 'feature/current-mode-yolo'
+
+### /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/tmp-current-worktree-yolo-smoke/bin/no-mistakes daemon stop
+  ✓ daemon stopped
+
+### cleanup transient smoke workspace
+evidence files:
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/axi-home-current-worktree.out
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/axi-run-current-default-branch-rejection.out
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/axi-run-current-dirty-rejection.out
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/axi-run-current-worktree.out
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/axi-status-current-worktree.out
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/current-worktree-run-metadata.json
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/current-worktree-yolo-smoke.txt
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/root-current-missing-intent.out
+  /Users/dale/.no-mistakes/worktrees/ea939cc75b90/01KVE03DCD075XA8DFGZFRTKT2/.no-mistakes/evidence/003-no-worktree-yolo-01/runs-current-worktree.out
