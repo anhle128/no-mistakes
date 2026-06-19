@@ -17,6 +17,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 )
@@ -252,6 +253,10 @@ func recoverOnStartup(d *db.DB, p *paths.Paths) {
 	reapOrphanedServers(p)
 	migrateGateConfigs(context.Background(), p)
 
+	staleRuns, staleErr := d.GetActiveRuns()
+	if staleErr != nil {
+		slog.Warn("failed to list stale runs before recovery", "error", staleErr)
+	}
 	count, err := d.RecoverStaleRuns("daemon crashed during execution")
 	if err != nil {
 		slog.Error("failed to recover stale runs", "error", err)
@@ -259,6 +264,14 @@ func recoverOnStartup(d *db.DB, p *paths.Paths) {
 	}
 	if count > 0 {
 		slog.Info("recovered stale runs from previous crash", "count", count)
+	}
+	for _, run := range staleRuns {
+		if run == nil {
+			continue
+		}
+		if _, err := reviewreport.Refresh(d, p, run.ID); err != nil {
+			slog.Warn("failed to refresh review resolution report after stale-run recovery", "run_id", run.ID, "error", err)
+		}
 	}
 
 	// Clean up orphaned worktree directories.
@@ -485,6 +498,22 @@ func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 		info.Steps = make([]ipc.StepResultInfo, 0, len(steps))
 		for _, s := range steps {
 			info.Steps = append(info.Steps, stepToInfo(d, s))
+		}
+	}
+	if report, err := d.GetReviewResolutionReport(r.ID); err == nil && report != nil {
+		info.ReviewResolution = &ipc.ReviewResolutionReportInfo{
+			Exists:             true,
+			Path:               report.ReportPath,
+			Status:             reviewreport.MetadataStatusForRun(d, r.ID, report),
+			ResolvedCount:      report.ResolvedCount,
+			AcceptedCount:      report.AcceptedCount,
+			InformationalCount: report.InformationalCount,
+			StillOpenCount:     report.StillOpenCount,
+			ReportVersion:      report.ReportVersion,
+			EntryCount:         report.EntryCount,
+			LastRefreshedAt:    report.LastRefreshedAt,
+			FinalizedAt:        report.FinalizedAt,
+			LastRefreshResult:  report.LastRefreshResult,
 		}
 	}
 	return info

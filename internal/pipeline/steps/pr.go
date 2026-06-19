@@ -11,6 +11,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/scm"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -188,6 +189,15 @@ Diff stat:
 // buildPipelineSection queries step results and rounds from the DB and
 // produces the deterministic pipeline, risk, and testing sections.
 func (s *PRStep) buildPipelineSection(sctx *pipeline.StepContext) (string, string, string) {
+	reviewReportFresh := true
+	reviewReportRefreshFailed := false
+	if sctx.Paths != nil {
+		if _, err := reviewreport.Refresh(sctx.DB, sctx.Paths, sctx.Run.ID); err != nil {
+			reviewReportFresh = false
+			reviewReportRefreshFailed = true
+			slog.Warn("failed to refresh review resolution report before PR summary", "error", err)
+		}
+	}
 	steps, err := sctx.DB.GetStepsByRun(sctx.Run.ID)
 	if err != nil {
 		slog.Warn("failed to query step results for pipeline summary", "error", err)
@@ -204,7 +214,20 @@ func (s *PRStep) buildPipelineSection(sctx *pipeline.StepContext) (string, strin
 		rounds[sr.ID] = r
 	}
 
-	pipelineMD, riskLine := BuildPipelineSummary(steps, rounds)
+	var report *db.ReviewResolutionReport
+	reportStatus := ""
+	if reviewReportFresh || reviewReportRefreshFailed {
+		report, err = sctx.DB.GetReviewResolutionReport(sctx.Run.ID)
+		if err != nil {
+			slog.Warn("failed to query review resolution metadata for PR summary", "error", err)
+		}
+		if reviewReportRefreshFailed && report != nil {
+			reportStatus = db.ReviewResolutionStatusEvidenceUnavailable
+		} else {
+			reportStatus = reviewreport.MetadataStatusForRun(sctx.DB, sctx.Run.ID, report)
+		}
+	}
+	pipelineMD, riskLine := BuildPipelineSummaryWithReviewResolutionStatus(steps, rounds, report, reportStatus)
 	testingMD := BuildTestingSummaryForPR(steps, rounds, sctx.Repo.UpstreamURL, sctx.Run.HeadSHA, sctx.WorkDir)
 	return pipelineMD, riskLine, testingMD
 }

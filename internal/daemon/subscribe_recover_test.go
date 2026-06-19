@@ -278,6 +278,10 @@ func TestRecoverStaleRunsOnStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.StartStep(staleStep.ID)
+	findings := `{"findings":[{"id":"review-1","severity":"warning","description":"stale finding","action":"ask-user"}],"summary":"stale finding"}`
+	if _, err := d.InsertStepRound(staleStep.ID, 1, "initial", &findings, nil, 10); err != nil {
+		t.Fatal(err)
+	}
 
 	d.Close()
 
@@ -335,6 +339,17 @@ func TestRecoverStaleRunsOnStartup(t *testing.T) {
 	}
 	if step.Status != types.StepStatusFailed {
 		t.Errorf("stale step status = %q, want %q", step.Status, types.StepStatusFailed)
+	}
+
+	report, err := d.GetReviewResolutionReport(staleRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report == nil {
+		t.Fatal("expected review resolution report after stale-run recovery")
+	}
+	if report.Status != db.ReviewResolutionStatusIncomplete {
+		t.Errorf("stale report status = %q, want %q", report.Status, db.ReviewResolutionStatusIncomplete)
 	}
 }
 

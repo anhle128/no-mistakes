@@ -6,6 +6,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/agent"
 	"github.com/kunchenguid/no-mistakes/internal/config"
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -18,6 +19,7 @@ type StepContext struct {
 	Agent            agent.Agent
 	Config           *config.Config
 	DB               *db.DB
+	Paths            *paths.Paths
 	Log              func(string) // discrete log line (newline-terminated, user-visible + file)
 	LogChunk         func(string) // raw streaming chunk (user-visible + file)
 	LogFile          func(string) // file-only log callback (not shown to user)
@@ -31,6 +33,13 @@ type StepContext struct {
 	// was trying to accomplish, inferred from local agent transcripts. It's
 	// surfaced in step prompts so agents have context beyond the diff.
 	UserIntent string
+
+	// LastFixCommitSHA, LastNoCommitReason, and LastFixResolutionDetailsJSON
+	// are set by fix-mode steps so the executor can persist Review fix
+	// evidence on the next step round.
+	LastFixCommitSHA             string
+	LastNoCommitReason           string
+	LastFixResolutionDetailsJSON string
 }
 
 // StepOutcome is the result of executing a pipeline step.
@@ -47,6 +56,12 @@ type StepOutcome struct {
 	// mode so the executor can persist it on the round record and later
 	// rounds can reference what was previously attempted.
 	FixSummary string
+	// FixCommitSHA identifies the commit produced by this fix round, if any.
+	FixCommitSHA string
+	// NoCommitReason records why no fix commit exists for a fix round.
+	NoCommitReason string
+	// FixResolutionDetailsJSON stores validated Review per-finding fix evidence.
+	FixResolutionDetailsJSON string
 
 	// DurationOverrideMS, when positive, replaces the wall-clock duration
 	// reported for this step. Used by demo mode to show realistic durations

@@ -63,6 +63,7 @@ When a branch passes the gate, it means:
 - it was checked against fresh upstream
 - the fixed pipeline ran in order
 - review, tests, user-facing test evidence when available, docs, and lint happened before the upstream push
+- Review findings, when present, left a local resolution report with resolved, accepted, informational, and still-open counts
 - you had a chance to approve, fix, skip, or abort any blocking step
 
 ## What you get

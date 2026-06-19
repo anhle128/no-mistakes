@@ -47,8 +47,45 @@ CREATE TABLE IF NOT EXISTS step_rounds (
     selected_finding_ids TEXT,
     selection_source     TEXT,
     fix_summary          TEXT,
+    fix_commit_sha       TEXT,
+    no_commit_reason     TEXT,
+    fix_resolution_details_json TEXT,
     duration_ms          INTEGER NOT NULL,
     created_at           INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS review_resolution_reports (
+    run_id              TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    report_path         TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    resolved_count      INTEGER NOT NULL,
+    accepted_count      INTEGER NOT NULL,
+    informational_count INTEGER NOT NULL,
+    still_open_count    INTEGER NOT NULL,
+    report_version      TEXT NOT NULL,
+    entry_count         INTEGER NOT NULL,
+    source_round_start  INTEGER,
+    source_round_end    INTEGER,
+    source_watermark    TEXT NOT NULL,
+    content_hash        TEXT NOT NULL,
+    last_refresh_result TEXT NOT NULL,
+    first_generated_at  INTEGER NOT NULL,
+    last_refreshed_at   INTEGER NOT NULL,
+    finalized_at        INTEGER,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS review_resolution_decisions (
+    id             TEXT PRIMARY KEY,
+    run_id         TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    step_result_id TEXT NOT NULL REFERENCES step_results(id) ON DELETE CASCADE,
+    round_id       TEXT REFERENCES step_rounds(id) ON DELETE SET NULL,
+    finding_id     TEXT NOT NULL,
+    action         TEXT NOT NULL,
+    actor_source   TEXT NOT NULL,
+    reason         TEXT,
+    created_at     INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS intent_cache (
@@ -72,4 +109,39 @@ var migrationStatements = []string{
 	`ALTER TABLE runs ADD COLUMN intent_source TEXT`,
 	`ALTER TABLE runs ADD COLUMN intent_session_id TEXT`,
 	`ALTER TABLE runs ADD COLUMN intent_score REAL`,
+	`ALTER TABLE step_rounds ADD COLUMN fix_commit_sha TEXT`,
+	`ALTER TABLE step_rounds ADD COLUMN no_commit_reason TEXT`,
+	`ALTER TABLE step_rounds ADD COLUMN fix_resolution_details_json TEXT`,
+	`CREATE TABLE IF NOT EXISTS review_resolution_reports (
+		run_id              TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+		report_path         TEXT NOT NULL,
+		status              TEXT NOT NULL,
+		resolved_count      INTEGER NOT NULL,
+		accepted_count      INTEGER NOT NULL,
+		informational_count INTEGER NOT NULL,
+		still_open_count    INTEGER NOT NULL,
+		report_version      TEXT NOT NULL,
+		entry_count         INTEGER NOT NULL,
+		source_round_start  INTEGER,
+		source_round_end    INTEGER,
+		source_watermark    TEXT NOT NULL,
+		content_hash        TEXT NOT NULL,
+		last_refresh_result TEXT NOT NULL,
+		first_generated_at  INTEGER NOT NULL,
+		last_refreshed_at   INTEGER NOT NULL,
+		finalized_at        INTEGER,
+		created_at          INTEGER NOT NULL,
+		updated_at          INTEGER NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS review_resolution_decisions (
+		id             TEXT PRIMARY KEY,
+		run_id         TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+		step_result_id TEXT NOT NULL REFERENCES step_results(id) ON DELETE CASCADE,
+		round_id       TEXT REFERENCES step_rounds(id) ON DELETE SET NULL,
+		finding_id     TEXT NOT NULL,
+		action         TEXT NOT NULL,
+		actor_source   TEXT NOT NULL,
+		reason         TEXT,
+		created_at     INTEGER NOT NULL
+	)`,
 }

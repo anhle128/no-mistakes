@@ -7,6 +7,7 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -66,12 +67,13 @@ type stepView struct {
 
 // runView is a render-ready view of a pipeline run.
 type runView struct {
-	ID      string
-	Branch  string
-	Status  string
-	HeadSHA string
-	PRURL   string
-	Steps   []stepView
+	ID               string
+	Branch           string
+	Status           string
+	HeadSHA          string
+	PRURL            string
+	ReviewResolution *ipc.ReviewResolutionReportInfo
+	Steps            []stepView
 }
 
 func runViewFromIPC(r *ipc.RunInfo) runView {
@@ -84,6 +86,7 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
+	rv.ReviewResolution = r.ReviewResolution
 	for _, s := range r.Steps {
 		sv := stepView{Name: string(s.StepName), Status: string(s.Status), FixSummaries: s.FixSummaries}
 		if s.DurationMS != nil {
@@ -118,6 +121,30 @@ func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 		rv.Steps = append(rv.Steps, sv)
 	}
 	return rv
+}
+
+func attachReviewResolutionFromDB(d *db.DB, rv *runView) {
+	if d == nil || rv == nil || rv.ID == "" {
+		return
+	}
+	report, err := d.GetReviewResolutionReport(rv.ID)
+	if err != nil || report == nil {
+		return
+	}
+	rv.ReviewResolution = &ipc.ReviewResolutionReportInfo{
+		Exists:             true,
+		Path:               report.ReportPath,
+		Status:             reviewreport.MetadataStatusForRun(d, rv.ID, report),
+		ResolvedCount:      report.ResolvedCount,
+		AcceptedCount:      report.AcceptedCount,
+		InformationalCount: report.InformationalCount,
+		StillOpenCount:     report.StillOpenCount,
+		ReportVersion:      report.ReportVersion,
+		EntryCount:         report.EntryCount,
+		LastRefreshedAt:    report.LastRefreshedAt,
+		FinalizedAt:        report.FinalizedAt,
+		LastRefreshResult:  report.LastRefreshResult,
+	}
 }
 
 // awaitingStep returns the step currently blocking on a human decision, if any.
@@ -234,6 +261,16 @@ func runObjectFieldWithKey(key string, rv runView) toon.Field {
 		fields = append(fields, toon.Field{Key: "pr", Value: rv.PRURL})
 	}
 	fields = append(fields, toon.Field{Key: "findings", Value: rv.findingsTally()})
+	if rv.ReviewResolution != nil && rv.ReviewResolution.Exists {
+		fields = append(fields, toon.Field{Key: "review_resolution", Value: toon.NewObject(
+			toon.Field{Key: "status", Value: rv.ReviewResolution.Status},
+			toon.Field{Key: "resolved", Value: rv.ReviewResolution.ResolvedCount},
+			toon.Field{Key: "accepted_without_fix", Value: rv.ReviewResolution.AcceptedCount},
+			toon.Field{Key: "informational", Value: rv.ReviewResolution.InformationalCount},
+			toon.Field{Key: "still_open", Value: rv.ReviewResolution.StillOpenCount},
+			toon.Field{Key: "path", Value: rv.ReviewResolution.Path},
+		)})
+	}
 
 	rows := make([]stepRow, 0, len(rv.Steps))
 	for _, s := range rv.Steps {

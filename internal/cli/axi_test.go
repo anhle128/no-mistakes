@@ -108,6 +108,37 @@ func TestWriteRunObjectShape(t *testing.T) {
 	}
 }
 
+func TestWriteRunObjectIncludesReviewResolution(t *testing.T) {
+	rv := runView{
+		ID:      "run-1",
+		Branch:  "feature/x",
+		Status:  string(types.RunCompleted),
+		HeadSHA: "abcdef1234567890",
+		ReviewResolution: &ipc.ReviewResolutionReportInfo{
+			Exists:             true,
+			Path:               "/tmp/nm/reports/run-1/review-resolution.md",
+			Status:             "final",
+			ResolvedCount:      1,
+			AcceptedCount:      2,
+			InformationalCount: 0,
+			StillOpenCount:     0,
+		},
+	}
+	out := axiDoc(runObjectField(rv))
+
+	for _, want := range []string{
+		"review_resolution:\n",
+		"status: final",
+		"resolved: 1",
+		"accepted_without_fix: 2",
+		"path: /tmp/nm/reports/run-1/review-resolution.md",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("run object missing %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestWriteGateShape(t *testing.T) {
 	gate := stepView{
 		Name:   "review",

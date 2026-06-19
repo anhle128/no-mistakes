@@ -88,6 +88,7 @@ When the pipeline pauses for approval, you can manually trigger a fix from the T
 The agent receives the merged fix payload for that round: the selected agent findings, any per-finding user notes, any selected user-authored findings added from the TUI or AXI interface, and a sanitized history of previous rounds for that step.
 That history includes which finding IDs were selected for a prior fix attempt, which findings were left unselected by the user, and any one-line summaries from earlier fix commits.
 On follow-up review passes, that history tells the agent not to re-report user-ignored findings unless the code now presents a materially different issue.
+For Review fixes, the agent may also return structured per-finding `resolutions[]` with applied solution, rationale, and changed files; no-mistakes stores those details as local report evidence when they are valid.
 
 After a user-triggered fix, the step re-runs and pauses again to show you the results (`fix_review` status). You can then approve, fix again, skip, or abort.
 Yolo and AXI `--yes` approve that fix review automatically after their one fix round, so a finding that remains after the fix does not trigger an unbounded fix loop.
@@ -109,10 +110,11 @@ The push step commits any remaining uncommitted changes with `no-mistakes: apply
 ## Step rounds
 
 Each execution of a step (initial run or follow-up auto-fix run) is recorded as a "round" in the database.
-A round stores its findings, duration, any selected finding IDs and whether that selection came from the user or auto-fix filtering, the merged finding payload actually sent to the fix agent for that round, and any one-line fix summary from that execution.
+A round stores its findings, duration, any selected finding IDs and whether that selection came from the user or auto-fix filtering, the merged finding payload actually sent to the fix agent for that round, any one-line fix summary from that execution, and fix evidence such as the produced commit SHA, no-commit reason, and structured Review resolution details when available.
 That merged payload can include per-finding user notes and user-authored findings added from the TUI or AXI interface.
 The PR body's deterministic risk assessment, testing, and pipeline sections are built from these rounds, giving reviewers visibility into test results, review risk, what was fixed, and how many attempts it took.
 In PR pipeline details, auto-fix rounds are rendered as an issue -> fix -> verification narrative instead of a round-numbered log: each fix summary is followed by either a successful re-check or the findings still open after that fix.
+When the Review step records findings, no-mistakes also maintains a local Markdown report under `~/.no-mistakes/reports/<runID>/review-resolution.md` plus compact SQLite metadata so AXI/TUI and PR summaries share the same outcome counts.
 
 Round trigger types:
 - `initial` - first execution

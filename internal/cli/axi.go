@@ -149,6 +149,7 @@ func runAxiHome(cmd *cobra.Command) error {
 	if currentActive != nil {
 		steps, _ := env.d.GetStepsByRun(currentActive.ID)
 		rv := runViewFromDB(currentActive, steps)
+		attachReviewResolutionFromDB(env.d, &rv)
 		fields = append(fields, runObjectFieldWithKey("active_run", rv))
 		if gate, ok := rv.awaitingStep(); ok {
 			gated = true
@@ -157,6 +158,7 @@ func runAxiHome(cmd *cobra.Command) error {
 	} else if otherActive != nil {
 		steps, _ := env.d.GetStepsByRun(otherActive.ID)
 		rv := runViewFromDB(otherActive, steps)
+		attachReviewResolutionFromDB(env.d, &rv)
 		fields = append(fields, runObjectFieldWithKey("other_branch_active_run", rv))
 	}
 

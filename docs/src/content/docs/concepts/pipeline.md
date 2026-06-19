@@ -27,6 +27,7 @@ The pipeline is opinionated so that "passed the gate" has a stable meaning:
 
 - the branch was checked against fresh upstream first
 - review, tests, user-facing test evidence when available, docs, and lint happened before any upstream push
+- Review findings, when present, have a local resolution report and compact metadata showing resolved, accepted, informational, and still-open counts
 - the human stayed in control when a step needed judgment
 - push, PR creation, and CI monitoring only happened after the local gate was satisfied
 

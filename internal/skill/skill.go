@@ -154,7 +154,10 @@ Run the pipeline and decide on its findings as they come up:
    While a run is active, never fix findings by editing the code yourself -
    the pipeline owns both the findings and the fixes. Your job at a gate is to
    decide and respond; ` + "`--action fix`" + ` has the pipeline apply the fix and
-   re-review the result.
+   re-review the result. When Review findings exist, no-mistakes maintains a
+   local review-resolution report at ` + "`$NM_HOME/reports/<runID>/review-resolution.md`" + `;
+   AXI/TUI show compact status/counts/path, while PR bodies only include
+   compact counts/status and never publish local paths.
 
     Each ` + "`respond`" + ` blocks until the next ` + "`gate:`" + `, ` + "`checks-passed`" + ` decision point, or final outcome.
 
@@ -233,6 +236,8 @@ no-mistakes axi abort         # cancel the current-branch active run
 
 - Output is TOON: ` + "`key: value`" + ` pairs, ` + "`name[N]{cols}:`" + ` tables, and ` + "`help[N]:`" + ` hints.
 - The ` + "`help`" + ` list at the bottom of most responses tells you the next commands to run.
+- A run may include ` + "`review_resolution:`" + ` with compact status/counts and a local path
+  when the Review step recorded findings.
 - Errors are printed as ` + "`error: ...`" + ` on stdout with a ` + "`help`" + ` list; act on the suggestion.
 - Exit codes: ` + "`0`" + ` success, no-op, or normal decision gates, ` + "`1`" + ` failed or cancelled final outcomes, ` + "`2`" + ` bad usage.
 

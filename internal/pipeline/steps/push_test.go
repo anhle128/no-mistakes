@@ -3,6 +3,7 @@ package steps
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kunchenguid/no-mistakes/internal/config"
@@ -139,5 +140,44 @@ func TestPushStep_DoesNotForceAddIgnoredEvidenceDirectory(t *testing.T) {
 	}
 	if status := gitStatusPorcelain(t, dir); status != "" {
 		t.Fatalf("ignored evidence directory was staged: %q", status)
+	}
+}
+
+func TestPushStep_DoesNotStageRepoLocalReviewResolutionReport(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("review-resolution.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".gitignore")
+	gitCmd(t, dir, "commit", "-m", "ignore local reports")
+	headSHA = gitCmd(t, dir, "rev-parse", "HEAD")
+
+	evidenceDir := filepath.Join(dir, "no-mistakes", "feature")
+	if err := os.MkdirAll(evidenceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(evidenceDir, "evidence.txt"), []byte("evidence"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(evidenceDir, "review-resolution.md"), []byte("local report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Run.Branch = "feature"
+	sctx.Config.Test.Evidence = config.Evidence{StoreInRepo: true, Dir: "no-mistakes"}
+
+	step := &PushStep{}
+	if err := step.stageInRepoEvidence(sctx); err != nil {
+		t.Fatal(err)
+	}
+	status := gitStatusPorcelain(t, dir)
+	if !strings.Contains(status, "A  no-mistakes/feature/evidence.txt") {
+		t.Fatalf("expected normal evidence file staged, got status:\n%s", status)
+	}
+	if strings.Contains(status, "review-resolution.md") {
+		t.Fatalf("repo-local review-resolution report was staged:\n%s", status)
 	}
 }
