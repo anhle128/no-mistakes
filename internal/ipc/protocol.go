@@ -179,20 +179,25 @@ type ShutdownResult struct {
 
 // RunInfo is the IPC representation of a pipeline run.
 type RunInfo struct {
-	ID               string                      `json:"id"`
-	RepoID           string                      `json:"repo_id"`
-	Branch           string                      `json:"branch"`
-	HeadSHA          string                      `json:"head_sha"`
-	BaseSHA          string                      `json:"base_sha"`
-	Status           types.RunStatus             `json:"status"`
-	PRURL            *string                     `json:"pr_url,omitempty"`
-	Error            *string                     `json:"error,omitempty"`
+	ID      string          `json:"id"`
+	RepoID  string          `json:"repo_id"`
+	Branch  string          `json:"branch"`
+	HeadSHA string          `json:"head_sha"`
+	BaseSHA string          `json:"base_sha"`
+	Status  types.RunStatus `json:"status"`
+	PRURL   *string         `json:"pr_url,omitempty"`
+	Error   *string         `json:"error,omitempty"`
+	// ReviewResolution carries compact local report metadata for runs whose
+	// Review step recorded findings. Clean Review runs omit it.
 	ReviewResolution *ReviewResolutionReportInfo `json:"review_resolution,omitempty"`
 	Steps            []StepResultInfo            `json:"steps,omitempty"`
 	CreatedAt        int64                       `json:"created_at"`
 	UpdatedAt        int64                       `json:"updated_at"`
 }
 
+// ReviewResolutionReportInfo is the IPC-safe summary of a local Review
+// resolution report. It intentionally carries counts and a local path only;
+// full per-finding narrative remains in the Markdown report on disk.
 type ReviewResolutionReportInfo struct {
 	Exists             bool   `json:"exists"`
 	Path               string `json:"path,omitempty"`

@@ -121,7 +121,7 @@ The `-y` / `--yes` flag continues through update safety prompts while still prin
 If the daemon executable path cannot be determined, `update` aborts before replacing anything.
 You can also manage it explicitly with `no-mistakes daemon start|stop|restart|status`.
 
-On startup, the daemon recovers from crashes by marking any stuck runs as failed, reaping orphaned managed agent servers, cleaning up orphaned worktrees, refreshing legacy no-mistakes-managed `post-receive` hooks, enabling push options for older gate repos, and reapplying gate hook-path isolation when Git supports `config --worktree`.
+On startup, the daemon recovers from crashes by marking any stuck runs as failed, refreshing review-resolution reports for those recovered runs when Review findings exist, reaping orphaned managed agent servers, cleaning up orphaned worktrees, refreshing legacy no-mistakes-managed `post-receive` hooks, enabling push options for older gate repos, and reapplying gate hook-path isolation when Git supports `config --worktree`.
 
 ### Pipeline executor
 

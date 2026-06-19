@@ -34,6 +34,9 @@ type StepContext struct {
 	// surfaced in step prompts so agents have context beyond the diff.
 	UserIntent string
 
+	// LastFixCommitSHA, LastNoCommitReason, and LastFixResolutionDetailsJSON
+	// are set by fix-mode steps so the executor can persist Review fix
+	// evidence on the next step round.
 	LastFixCommitSHA             string
 	LastNoCommitReason           string
 	LastFixResolutionDetailsJSON string
@@ -52,9 +55,12 @@ type StepOutcome struct {
 	// the fix attempt performed during this round. Steps populate it in fix
 	// mode so the executor can persist it on the round record and later
 	// rounds can reference what was previously attempted.
-	FixSummary               string
-	FixCommitSHA             string
-	NoCommitReason           string
+	FixSummary string
+	// FixCommitSHA identifies the commit produced by this fix round, if any.
+	FixCommitSHA string
+	// NoCommitReason records why no fix commit exists for a fix round.
+	NoCommitReason string
+	// FixResolutionDetailsJSON stores validated Review per-finding fix evidence.
 	FixResolutionDetailsJSON string
 
 	// DurationOverrideMS, when positive, replaces the wall-clock duration

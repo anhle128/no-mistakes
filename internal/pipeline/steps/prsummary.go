@@ -40,10 +40,15 @@ func BuildPipelineSummary(steps []*db.StepResult, rounds map[string][]*db.StepRo
 	return BuildPipelineSummaryWithReviewResolution(steps, rounds, nil)
 }
 
+// BuildPipelineSummaryWithReviewResolution renders the PR Pipeline section and
+// includes compact Review resolution counts when metadata exists.
 func BuildPipelineSummaryWithReviewResolution(steps []*db.StepResult, rounds map[string][]*db.StepRound, report *db.ReviewResolutionReport) (string, string) {
 	return BuildPipelineSummaryWithReviewResolutionStatus(steps, rounds, report, "")
 }
 
+// BuildPipelineSummaryWithReviewResolutionStatus is like
+// BuildPipelineSummaryWithReviewResolution, but lets callers surface a
+// reconciled metadata status such as stale or evidence_unavailable.
 func BuildPipelineSummaryWithReviewResolutionStatus(steps []*db.StepResult, rounds map[string][]*db.StepRound, report *db.ReviewResolutionReport, statusOverride string) (string, string) {
 	if len(steps) == 0 {
 		return "", ""

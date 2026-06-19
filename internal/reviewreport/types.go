@@ -15,6 +15,7 @@ const (
 	OutcomeStillOpen     EntryOutcome = "still_open"
 )
 
+// Snapshot is the classified report state used to render Markdown and metadata.
 type Snapshot struct {
 	RunID           string
 	RepoIdentifier  string
@@ -33,6 +34,7 @@ type Snapshot struct {
 	Degraded        bool
 }
 
+// Entry is one normalized Review finding and its current resolution evidence.
 type Entry struct {
 	Finding           types.Finding
 	Outcome           EntryOutcome
@@ -58,6 +60,7 @@ type Entry struct {
 	Degraded          bool
 }
 
+// Decision records the terminal Review decision used to classify an entry.
 type Decision struct {
 	Action      string
 	ActorSource string
@@ -72,6 +75,7 @@ type fixResolutionPayload struct {
 	Degraded    []string              `json:"degraded,omitempty"`
 }
 
+// FixResolutionDetail is optional structured fix-agent evidence for one finding.
 type FixResolutionDetail struct {
 	FindingID       string   `json:"finding_id"`
 	AppliedSolution string   `json:"applied_solution"`

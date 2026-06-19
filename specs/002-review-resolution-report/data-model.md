@@ -36,7 +36,7 @@ Only the Review step is in scope for this feature.
 
 Source: `internal/db/round.go`, `internal/db/schema.go`
 
-Current useful fields:
+Existing fields reused:
 
 - `id`
 - `step_result_id`
@@ -50,7 +50,7 @@ Current useful fields:
 - `duration_ms`
 - `created_at`
 
-Planned additive fields:
+Additive fields introduced by this feature:
 
 - `fix_commit_sha TEXT NULL`
 - `no_commit_reason TEXT NULL`

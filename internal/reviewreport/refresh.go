@@ -596,6 +596,7 @@ type Counts struct {
 	StillOpen     int
 }
 
+// CountEntries aggregates report entries by outcome category.
 func CountEntries(entries []Entry) Counts {
 	var c Counts
 	for _, entry := range entries {
