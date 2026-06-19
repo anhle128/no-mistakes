@@ -55,6 +55,7 @@ no-mistakes axi
 With no subcommand, shows the executable path, description, repo, current branch, daemon state, recent runs, and next-step help.
 When the current branch has an active run, that run appears as `active_run` with any approval gate and help for `axi respond` or `axi abort`.
 When only another branch has an active run, that run appears as `other_branch_active_run`; the help tells agents to leave it alone and start validation for the current branch.
+If a shown run has Review findings and a review-resolution report, the run object includes `review_resolution` with `status`, `resolved`, `accepted_without_fix`, `informational`, `still_open`, and the local `path`.
 
 ## no-mistakes axi run
 
@@ -77,6 +78,7 @@ no-mistakes axi run --intent "the user's goal" --yes
 It is the user's goal or request, and no-mistakes uses it verbatim instead of transcript inference.
 Err on the side of completeness: include the goal, important decisions and tradeoffs, constraints or approaches ruled in or out, and explicit requests that might otherwise look surprising in the diff.
 When starting a new run, `axi run` refuses the default branch and uncommitted working trees with actionable errors instead of auto-branching or auto-committing.
+If a run cannot be started after the gate push, the error includes the latest `<gate>/notify-push.log` tail when that hook diagnostic log exists.
 Reattaching to an in-flight run does not require `--intent`.
 With `--yes`, `axi run` treats both `action: auto-fix` and `action: ask-user` findings as standing consent for the pipeline to fix them by selecting every finding, then accepts the resulting fix review.
 Gates with no findings or only `action: no-op` findings are approved as-is, and each step is fixed at most once so unresolved findings do not loop forever.
@@ -112,7 +114,7 @@ The same successful-output reporting instructions apply to `axi respond` results
 ## no-mistakes axi status
 
 Show a run, preferring the current branch's active or most recent run before falling back to repo-wide active or recent runs.
-When a Review resolution report exists, the run object includes a `review_resolution` object with compact status/counts and the local report path for inspection.
+When a Review resolution report exists, the run object includes a `review_resolution` object with `status`, `resolved`, `accepted_without_fix`, `informational`, `still_open`, and the local `path` for inspection. Status can be `in_progress`, `final`, `incomplete`, `stale`, `degraded`, or `evidence_unavailable`.
 
 ```sh
 no-mistakes axi status

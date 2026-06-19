@@ -9,6 +9,8 @@ import (
 
 const maxFullDetailReportBytes = 256 * 1024
 
+// RenderMarkdown renders a Review resolution snapshot into the local report
+// artifact format.
 func RenderMarkdown(snap Snapshot) string {
 	counts := CountEntries(snap.Entries)
 	var b strings.Builder

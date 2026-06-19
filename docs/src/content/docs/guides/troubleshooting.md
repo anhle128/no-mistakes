@@ -157,6 +157,7 @@ The hook should be executable. If it's missing or non-executable, `no-mistakes i
 For existing gate repos, `no-mistakes daemon restart` also installs missing no-mistakes-managed hooks and refreshes legacy managed hooks without overwriting custom hooks.
 
 Also check `<gate-path>/notify-push.log`. The hook now appends daemon notification failures there and prints the same error back to the pushing client.
+When `no-mistakes axi run` cannot start a run and this log has content, the command includes the latest `notify-push.log` tail in its structured error.
 
 ### Check the daemon socket
 

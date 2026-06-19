@@ -146,17 +146,13 @@ func buildSnapshot(run *db.Run, repo *db.Repo, reviewStep *db.StepResult, rounds
 
 	entriesByID := map[string]*Entry{}
 	order := []string{}
-	var latestParsed *types.Findings
-	var latestRound int
+	var latestResolutionEvidence *types.Findings
+	var latestResolutionRound int
 	parseFailed := false
 	for _, round := range rounds {
-		for _, raw := range []*string{round.FindingsJSON, round.UserFindingsJSON} {
+		for i, raw := range []*string{round.FindingsJSON, round.UserFindingsJSON} {
+			isReviewOutput := i == 0
 			if raw == nil || strings.TrimSpace(*raw) == "" {
-				if raw == round.FindingsJSON {
-					empty := types.Findings{}
-					latestParsed = &empty
-					latestRound = round.Round
-				}
 				continue
 			}
 			findings, err := types.ParseFindingsJSON(*raw)
@@ -164,9 +160,10 @@ func buildSnapshot(run *db.Run, repo *db.Repo, reviewStep *db.StepResult, rounds
 				parseFailed = true
 				continue
 			}
-			if raw == round.FindingsJSON {
-				latestParsed = &findings
-				latestRound = round.Round
+			if isReviewOutput && isResolutionEvidenceRound(round, findings) {
+				latest := findings
+				latestResolutionEvidence = &latest
+				latestResolutionRound = round.Round
 			}
 			for i, finding := range findings.Items {
 				if finding.ID == "" {
@@ -209,7 +206,7 @@ func buildSnapshot(run *db.Run, repo *db.Repo, reviewStep *db.StepResult, rounds
 			}
 		}
 		applyFixEvidence(entry, rounds, gateRepoPath)
-		classifyEntry(entry, latestParsed, latestRound, reviewStep.Status, entriesByID)
+		classifyEntry(entry, latestResolutionEvidence, latestResolutionRound, reviewStep.Status, entriesByID)
 		if parseFailed {
 			entry.Degraded = true
 			entry.EvidenceQuality = "degraded"
@@ -228,6 +225,16 @@ func buildSnapshot(run *db.Run, repo *db.Repo, reviewStep *db.StepResult, rounds
 		snap.FinalizedAt = &finalized
 	}
 	return snap, true, nil
+}
+
+func isResolutionEvidenceRound(round *db.StepRound, findings types.Findings) bool {
+	if round == nil || len(findings.Items) > 0 || !round.IsFixRound() {
+		return true
+	}
+	if round.FixCommitSHA != nil && strings.TrimSpace(*round.FixCommitSHA) != "" {
+		return true
+	}
+	return round.NoCommitReason == nil || strings.TrimSpace(*round.NoCommitReason) == ""
 }
 
 func mergeFinding(prev, next types.Finding) types.Finding {
@@ -572,10 +579,14 @@ func classifyReportStatus(runStatus types.RunStatus, reviewStatus types.StepStat
 		}
 		return db.ReviewResolutionStatusIncomplete
 	}
-	if runStatus == types.RunCompleted && reviewStatus == types.StepStatusCompleted {
+	if runStatus == types.RunCompleted && isTerminalReviewStatus(reviewStatus) {
 		return db.ReviewResolutionStatusFinal
 	}
 	return db.ReviewResolutionStatusInProgress
+}
+
+func isTerminalReviewStatus(status types.StepStatus) bool {
+	return status == types.StepStatusCompleted || status == types.StepStatusSkipped
 }
 
 type Counts struct {
@@ -585,6 +596,7 @@ type Counts struct {
 	StillOpen     int
 }
 
+// CountEntries aggregates report entries by outcome category.
 func CountEntries(entries []Entry) Counts {
 	var c Counts
 	for _, entry := range entries {

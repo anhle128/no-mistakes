@@ -80,7 +80,7 @@ Step status icons:
 Completed steps show their duration.
 Steps with fixed findings, and steps currently fixing reported findings, show a right-aligned count such as `2/3 fixed` or `0/3 fixed`.
 The first number counts completed fixes, not findings selected for an in-progress fix.
-When a Review resolution report exists, the pipeline header shows compact status/counts and the local report path. Non-final or still-open reports use warning-colored wording.
+When a Review resolution report exists, the pipeline header shows compact status/counts and the local report path. Status can be `in_progress`, `final`, `incomplete`, `stale`, `degraded`, or `evidence_unavailable`; non-final, still-open, stale, degraded, and evidence-unavailable reports use warning-colored wording.
 Connectors (`│`) between steps are hidden when the terminal height is under 30 lines.
 
 ### Findings panel

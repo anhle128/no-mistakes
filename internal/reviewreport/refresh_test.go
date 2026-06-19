@@ -349,6 +349,115 @@ func TestRefreshPartialFollowupResolvesFixedKnownFinding(t *testing.T) {
 	}
 }
 
+func TestRefreshNoCommitEmptyFixRoundKeepsSelectedFindingOpen(t *testing.T) {
+	d := openReportTestDB(t)
+	p := paths.WithRoot(t.TempDir())
+	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
+	step, _ := d.InsertStepResult(run.ID, types.StepReview)
+
+	initial := `{"findings":[{"id":"review-1","severity":"warning","description":"selected issue","action":"auto-fix"}],"summary":"1 finding"}`
+	r1, err := d.InsertStepRound(step.ID, 1, "initial", &initial, nil, 10)
+	if err != nil {
+		t.Fatalf("insert initial round: %v", err)
+	}
+	selected := `["review-1"]`
+	if err := d.SetStepRoundSelection(r1.ID, &selected, db.RoundSelectionSourceAutoFix); err != nil {
+		t.Fatalf("set selected finding ids: %v", err)
+	}
+	summary := "no changes to commit"
+	noCommit := "no_changes"
+	empty := `{"findings":[],"summary":"no reviewable changes","risk_level":"low","risk_rationale":"no reviewable changes"}`
+	if _, err := d.InsertStepRoundWithEvidence(step.ID, 2, "auto_fix", &empty, &summary, nil, &noCommit, nil, 20); err != nil {
+		t.Fatalf("insert no-commit fix round: %v", err)
+	}
+	if err := d.UpdateStepStatus(step.ID, types.StepStatusCompleted); err != nil {
+		t.Fatalf("complete step: %v", err)
+	}
+	if err := d.UpdateRunStatus(run.ID, types.RunCompleted); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+
+	meta, err := Refresh(d, p, run.ID)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if meta.ResolvedCount != 0 || meta.StillOpenCount != 1 || meta.Status != db.ReviewResolutionStatusIncomplete {
+		t.Fatalf("metadata = %+v, want no resolved findings and one incomplete still-open finding", meta)
+	}
+	raw, err := os.ReadFile(meta.ReportPath)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	md := string(raw)
+	section := md[strings.Index(md, "### review-1"):]
+	for _, want := range []string{
+		"Outcome: Still Open",
+		"Verification text: verification inconclusive",
+	} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("report missing %q:\n%s", want, section)
+		}
+	}
+	if !strings.Contains(section, "No-commit reason:") || !strings.Contains(section, "changes") {
+		t.Fatalf("report missing no-commit provenance:\n%s", section)
+	}
+}
+
+func TestRefreshSkippedReviewWithAcceptedFindingIsFinal(t *testing.T) {
+	d := openReportTestDB(t)
+	p := paths.WithRoot(t.TempDir())
+	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
+	step, _ := d.InsertStepResult(run.ID, types.StepReview)
+
+	initial := `{"findings":[{"id":"review-1","severity":"warning","description":"accepted issue","action":"ask-user"}],"summary":"1 finding"}`
+	r1, err := d.InsertStepRound(step.ID, 1, "initial", &initial, nil, 10)
+	if err != nil {
+		t.Fatalf("insert initial round: %v", err)
+	}
+	reason := "skipped by user"
+	if _, err := d.InsertReviewResolutionDecision(db.ReviewResolutionDecision{
+		RunID:        run.ID,
+		StepResultID: step.ID,
+		RoundID:      &r1.ID,
+		FindingID:    "review-1",
+		Action:       db.ReviewResolutionDecisionSkip,
+		ActorSource:  "user",
+		Reason:       &reason,
+	}); err != nil {
+		t.Fatalf("insert skip decision: %v", err)
+	}
+	if err := d.UpdateStepStatus(step.ID, types.StepStatusSkipped); err != nil {
+		t.Fatalf("skip step: %v", err)
+	}
+	if err := d.UpdateRunStatus(run.ID, types.RunCompleted); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+
+	meta, err := Refresh(d, p, run.ID)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if meta.Status != db.ReviewResolutionStatusFinal || meta.AcceptedCount != 1 || meta.StillOpenCount != 0 {
+		t.Fatalf("metadata = %+v, want final accepted finding", meta)
+	}
+	raw, err := os.ReadFile(meta.ReportPath)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	md := string(raw)
+	for _, want := range []string{
+		"Outcome: Accepted Without Fix",
+		"Decision action: skip",
+		"Report lifecycle state: final",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("report missing %q:\n%s", want, md)
+		}
+	}
+}
+
 func TestRenderMarkdownEnforcesTotalReportCap(t *testing.T) {
 	snap := Snapshot{
 		RunID:          "run-big",

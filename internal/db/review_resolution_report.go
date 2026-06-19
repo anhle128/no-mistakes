@@ -118,6 +118,7 @@ func (d *DB) UpsertReviewResolutionReport(r ReviewResolutionReport) error {
 	return nil
 }
 
+// GetReviewResolutionReport returns compact report metadata for a run, if it exists.
 func (d *DB) GetReviewResolutionReport(runID string) (*ReviewResolutionReport, error) {
 	r := &ReviewResolutionReport{}
 	err := d.sql.QueryRow(`
@@ -143,6 +144,7 @@ func (d *DB) GetReviewResolutionReport(runID string) (*ReviewResolutionReport, e
 	return r, nil
 }
 
+// DeleteReviewResolutionReport removes compact report metadata for a run.
 func (d *DB) DeleteReviewResolutionReport(runID string) error {
 	if _, err := d.sql.Exec(`DELETE FROM review_resolution_reports WHERE run_id = ?`, runID); err != nil {
 		return fmt.Errorf("delete review resolution report: %w", err)
@@ -163,6 +165,7 @@ type ReviewResolutionDecision struct {
 	CreatedAt    int64
 }
 
+// InsertReviewResolutionDecision stores terminal Review decision provenance.
 func (d *DB) InsertReviewResolutionDecision(decision ReviewResolutionDecision) (*ReviewResolutionDecision, error) {
 	if decision.ID == "" {
 		decision.ID = newID()
@@ -182,6 +185,7 @@ func (d *DB) InsertReviewResolutionDecision(decision ReviewResolutionDecision) (
 	return &decision, nil
 }
 
+// GetReviewResolutionDecisions returns Review terminal decision provenance for a run.
 func (d *DB) GetReviewResolutionDecisions(runID string) ([]*ReviewResolutionDecision, error) {
 	rows, err := d.sql.Query(`
 		SELECT id, run_id, step_result_id, round_id, finding_id, action,
