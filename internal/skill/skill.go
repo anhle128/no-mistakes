@@ -54,6 +54,9 @@ When the user invokes ` + "`/no-mistakes`" + `, report the outcome at the end. I
 asks for something specific, translate that request into the matching ` + "`axi run`" + `
 flags yourself - for example, "skip the lint step" becomes ` + "`--skip=lint`" + `. Run
 ` + "`no-mistakes axi run --help`" + ` to see the available flags.
+If the user explicitly asks no-mistakes to use the current checkout instead of a
+disposable worktree, add ` + "`--no-worktree`" + `. If they say "yolo", treat it only as
+the existing ` + "`--yes`" + ` auto-resolution consent; ` + "`--yolo`" + ` is just an alias.
 
 ## Two ways to invoke
 
@@ -81,6 +84,10 @@ task along with the command:
 
 Everything below - preconditions, intent, the validate-and-decide loop - applies
 the same way once the work is committed on a feature branch.
+By default no-mistakes creates a disposable validation worktree. Only use
+` + "`--no-worktree`" + ` when the user or surrounding workflow explicitly wants the
+pipeline to run in the current checkout, with any automated fix commits left
+there.
 
 ## Before you start
 
@@ -88,6 +95,8 @@ the same way once the work is committed on a feature branch.
   validates committed history, not your uncommitted working tree.
 - You must be on a **feature branch**, not the repository's default branch.
 - The repository must already be initialized with ` + "`no-mistakes init`" + `.
+- For ` + "`--no-worktree`" + `, the current checkout must also be clean, attached to a
+  real branch HEAD, and able to prove a default-branch review base.
 
 If any of these is not met, ` + "`axi run`" + ` returns an ` + "`error:`" + ` with the exact command
 to fix it - read it and act on it (commit your work, or create a branch). If the
@@ -123,6 +132,8 @@ Run the pipeline and decide on its findings as they come up:
 1. Start the run. It blocks until the first decision point or the end:
    ` + "```sh" + `
    no-mistakes axi run --intent "<what the user set out to accomplish>"
+   # only when current-checkout execution was explicitly requested:
+   no-mistakes axi run --intent "<what the user set out to accomplish>" --no-worktree --yolo
    ` + "```" + `
    ` + "`axi run`" + ` and every ` + "`axi respond`" + ` block synchronously - the review, test,
    and CI steps can each take **several minutes**, so a single call may not
@@ -154,7 +165,10 @@ Run the pipeline and decide on its findings as they come up:
    While a run is active, never fix findings by editing the code yourself -
    the pipeline owns both the findings and the fixes. Your job at a gate is to
    decide and respond; ` + "`--action fix`" + ` has the pipeline apply the fix and
-   re-review the result.
+   re-review the result. When Review findings exist, no-mistakes maintains a
+   local review-resolution report at ` + "`$NM_HOME/reports/<runID>/review-resolution.md`" + `;
+   AXI/TUI show compact status/counts/path, while PR bodies only include
+   compact counts/status and never publish local paths.
 
     Each ` + "`respond`" + ` blocks until the next ` + "`gate:`" + `, ` + "`checks-passed`" + ` decision point, or final outcome.
 
@@ -218,7 +232,9 @@ or ` + "`axi respond`" + `. It treats every actionable finding - ` + "`auto-fix`
 ` + "`ask-user`" + ` alike - as consent to fix it, selects every current finding for one
 fix round, accepts the resulting fix review, and approves gates with only
 ` + "`no-op`" + ` findings. Only use it when the user has asked you to drive the whole
-run without checking back.
+run without checking back. ` + "`--yolo`" + ` is accepted anywhere ` + "`--yes`" + ` is accepted
+on run-start commands and means exactly the same thing, not a more powerful
+approval mode.
 
 ## Inspecting state
 
@@ -233,7 +249,12 @@ no-mistakes axi abort         # cancel the current-branch active run
 
 - Output is TOON: ` + "`key: value`" + ` pairs, ` + "`name[N]{cols}:`" + ` tables, and ` + "`help[N]:`" + ` hints.
 - The ` + "`help`" + ` list at the bottom of most responses tells you the next commands to run.
+- A run may include ` + "`review_resolution:`" + ` with compact status/counts and a local path
+  when the Review step recorded findings.
 - Errors are printed as ` + "`error: ...`" + ` on stdout with a ` + "`help`" + ` list; act on the suggestion.
+- Current-checkout runs include ` + "`worktree_mode: current`" + ` and
+  ` + "`current_worktree_warning`" + `. Preserve that warning in your summary and do
+  not imply no-mistakes cleaned up the checkout.
 - Exit codes: ` + "`0`" + ` success, no-op, or normal decision gates, ` + "`1`" + ` failed or cancelled final outcomes, ` + "`2`" + ` bad usage.
 
 A ` + "`gate:`" + ` waiting on you looks roughly like this - a ` + "`gate:`" + ` line naming the

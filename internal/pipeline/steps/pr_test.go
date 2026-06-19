@@ -14,6 +14,8 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/agent"
 	"github.com/kunchenguid/no-mistakes/internal/config"
+	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -293,6 +295,64 @@ func TestPRStep_CreatesNewPR(t *testing.T) {
 	}
 	if run.PRURL == nil || *run.PRURL != "https://github.com/test/repo/pull/99" {
 		t.Errorf("PR URL = %v, want https://github.com/test/repo/pull/99", run.PRURL)
+	}
+}
+
+func TestPRStepBuildPipelineSectionRefreshesReviewResolutionBeforeSummary(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Paths = paths.WithRoot(t.TempDir())
+
+	reviewStep, err := sctx.DB.InsertStepResult(sctx.Run.ID, types.StepReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := `{"findings":[{"id":"review-1","severity":"warning","description":"accepted risk","action":"ask-user"}],"summary":"1 finding"}`
+	round, err := sctx.DB.InsertStepRound(reviewStep.ID, 1, "initial", &findings, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := "accepted by reviewer"
+	roundID := round.ID
+	if _, err := sctx.DB.InsertReviewResolutionDecision(db.ReviewResolutionDecision{
+		RunID:        sctx.Run.ID,
+		StepResultID: reviewStep.ID,
+		RoundID:      &roundID,
+		FindingID:    "review-1",
+		Action:       db.ReviewResolutionDecisionApprove,
+		ActorSource:  "user",
+		Reason:       &reason,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sctx.DB.UpdateStepStatus(reviewStep.ID, types.StepStatusCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := sctx.DB.UpdateRunStatus(sctx.Run.ID, types.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := sctx.DB.GetReviewResolutionReport(sctx.Run.ID); err != nil || report != nil {
+		t.Fatalf("precondition report = %+v, err = %v; want absent", report, err)
+	}
+
+	pipelineMD, _, _ := (&PRStep{}).buildPipelineSection(sctx)
+
+	report, err := sctx.DB.GetReviewResolutionReport(sctx.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report == nil {
+		t.Fatal("expected PR summary build to refresh review resolution metadata")
+	}
+	if !strings.Contains(pipelineMD, "Review resolution: final; 0 resolved, 1 accepted without fix, 0 informational, 0 still open.") {
+		t.Fatalf("missing refreshed review resolution summary:\n%s", pipelineMD)
+	}
+	for _, forbidden := range []string{"review-resolution.md", sctx.Paths.Root()} {
+		if strings.Contains(pipelineMD, forbidden) {
+			t.Fatalf("PR pipeline summary leaked local report detail %q:\n%s", forbidden, pipelineMD)
+		}
 	}
 }
 
@@ -647,12 +707,13 @@ func TestUnwrapNestedPRBody(t *testing.T) {
 }
 
 func TestAppendGeneratedSections_StripsAgentGeneratedSections(t *testing.T) {
-	body := "## Summary\n\n- improve PR descriptions\n\n## Testing\n\n- model-added testing\n\n## Risk Assessment\n\nold risk\n\n## Pipeline\n\nold pipeline"
+	body := "## Summary\n\n- improve PR descriptions\n\n## Testing\n\n- model-added testing\n\n## Risk Assessment\n\nold risk\n\n## Run Context\n\nold run context\n\n## Pipeline\n\nold pipeline"
 
 	got := appendGeneratedSections(
 		body,
 		"real risk",
 		"## Testing\n\n- deterministic testing",
+		"## Run Context\n\n- Mode: uses this checkout",
 		"## Pipeline\n\n- deterministic pipeline",
 	)
 
@@ -665,7 +726,10 @@ func TestAppendGeneratedSections_StripsAgentGeneratedSections(t *testing.T) {
 	if strings.Count(got, "## Pipeline") != 1 {
 		t.Fatalf("expected one Pipeline section, got:\n%s", got)
 	}
-	if strings.Contains(got, "model-added testing") || strings.Contains(got, "old risk") || strings.Contains(got, "old pipeline") {
+	if strings.Count(got, "## Run Context") != 1 {
+		t.Fatalf("expected one Run Context section, got:\n%s", got)
+	}
+	if strings.Contains(got, "model-added testing") || strings.Contains(got, "old risk") || strings.Contains(got, "old run context") || strings.Contains(got, "old pipeline") {
 		t.Fatalf("expected generated sections to replace agent-provided ones, got:\n%s", got)
 	}
 }
@@ -677,6 +741,7 @@ func TestAppendGeneratedSections_StripsCommonHeadingVariants(t *testing.T) {
 		body,
 		"real risk",
 		"## Testing\n\n- deterministic testing",
+		"",
 		"## Pipeline\n\n- deterministic pipeline",
 	)
 
@@ -692,6 +757,56 @@ func TestAppendGeneratedSections_StripsCommonHeadingVariants(t *testing.T) {
 	if strings.Count(got, "## Pipeline") != 1 {
 		t.Fatalf("expected one normalized Pipeline section, got:\n%s", got)
 	}
+}
+
+func TestBuildRunContextSection_CurrentWorktree(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Run.WorktreeMode = types.WorktreeModeCurrent
+	sctx.Run.WorkDirLabel = stringPtr("repo")
+	sctx.Run.CurrentWorktreeWarning = stringPtr("Automated edits run in this checkout.")
+	sctx.Run.ReviewBaseRef = stringPtr("origin/main")
+	sctx.Run.EvidenceState = types.EvidenceIncomplete
+	sctx.Run.TerminalReason = stringPtr(types.RunTerminalReasonDaemonCrashed)
+
+	got := buildRunContextSection(sctx)
+
+	for _, want := range []string{
+		"## Run Context",
+		"- Mode: uses this checkout",
+		"- Work directory: repo",
+		"- Run: " + sctx.Run.ID,
+		"- Review base: origin/main",
+		"- Evidence state: incomplete",
+		"- Terminal reason: daemon_crashed",
+		"- Warning: Automated edits run in this checkout.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in run context:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, dir) {
+		t.Fatalf("run context leaked absolute workdir path:\n%s", got)
+	}
+}
+
+func TestBuildRunContextSection_IsolatedRunEmpty(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Run.WorktreeMode = types.WorktreeModeIsolated
+	sctx.Run.WorkDirLabel = stringPtr("repo")
+
+	if got := buildRunContextSection(sctx); got != "" {
+		t.Fatalf("expected no run context for isolated run, got:\n%s", got)
+	}
+}
+
+func stringPtr(s string) *string {
+	return &s
 }
 
 func TestPRStep_PrependsIntentSectionWhenIntentSet(t *testing.T) {

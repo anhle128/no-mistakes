@@ -206,7 +206,7 @@ func reattachRelocatedRepo(ctx context.Context, d *db.DB, p *paths.Paths, absRoo
 }
 
 // Eject removes the no-mistakes gate from the repo at workDir.
-// It removes the remote, deletes the bare repo and worktrees,
+// It removes the remote, deletes the bare repo and managed worktrees,
 // and deletes the repo record from the database.
 func Eject(ctx context.Context, d *db.DB, p *paths.Paths, workDir string) (*db.Repo, error) {
 	// Normalize worktrees back to the main repo root so eject works no matter
@@ -233,7 +233,7 @@ func Eject(ctx context.Context, d *db.DB, p *paths.Paths, workDir string) (*db.R
 	bareDir := p.RepoDir(repo.ID)
 	os.RemoveAll(bareDir)
 
-	// Delete worktrees for this repo.
+	// Delete managed worktrees for this repo.
 	repoWtDir := filepath.Join(p.WorktreesDir(), repo.ID)
 	os.RemoveAll(repoWtDir)
 

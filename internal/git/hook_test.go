@@ -27,8 +27,11 @@ func TestPostReceiveHookScript(t *testing.T) {
 		t.Fatal("hook should read ref update args")
 	}
 
-	if !strings.Contains(script, "--gate \"$(pwd)\"") {
-		t.Fatal("hook should pass the gate path as a flag")
+	if !strings.Contains(script, "GATE_DIR=$(cd \"$hook_dir/..\" 2>/dev/null && pwd -P)") {
+		t.Fatal("hook should resolve the bare gate path from the hook location")
+	}
+	if !strings.Contains(script, "--gate \"$GATE_DIR\"") {
+		t.Fatal("hook should pass the resolved gate path as a flag")
 	}
 	if !strings.Contains(script, "daemon notify-push") {
 		t.Fatal("hook should invoke the CLI notify subcommand")
@@ -120,7 +123,7 @@ func TestPostReceiveHookScriptDoesNotEvaluatePushOptions(t *testing.T) {
 
 	base := t.TempDir()
 	bare := filepath.Join(base, "test.git")
-	if err := os.MkdirAll(bare, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(bare, "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -131,7 +134,7 @@ func TestPostReceiveHookScriptDoesNotEvaluatePushOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hookPath := filepath.Join(base, "post-receive")
+	hookPath := filepath.Join(bare, "hooks", "post-receive")
 	if err := os.WriteFile(hookPath, []byte(postReceiveHookScript(fakeBin)), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -157,6 +160,9 @@ func TestPostReceiveHookScriptDoesNotEvaluatePushOptions(t *testing.T) {
 	}
 	if !strings.Contains(string(args), "ok; touch "+markerPath) {
 		t.Fatalf("hook should forward push option literally, got:\n%s", args)
+	}
+	if !strings.Contains(string(args), bare) {
+		t.Fatalf("hook should pass the physical bare repo path, got:\n%s", args)
 	}
 }
 

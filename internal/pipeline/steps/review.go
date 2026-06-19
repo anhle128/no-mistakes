@@ -34,7 +34,7 @@ func (s *ReviewStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome,
 	var fixSummary string
 	if sctx.Fixing {
 		previousFindings := sanitizedPreviousFindingsForPrompt(sctx.PreviousFindings)
-		historySection := executionContextPromptSection() + roundHistoryPromptSection(sctx) + userIntentPromptSection(sctx)
+		historySection := executionContextPromptSection(sctx) + roundHistoryPromptSection(sctx) + userIntentPromptSection(sctx)
 		fixPrompt := fmt.Sprintf(
 			`Investigate previous review findings and address legitimate ones.
 
@@ -55,9 +55,10 @@ Rules:
 - Avoid resolving a finding by removing or reverting the author's intentional code in their original 1st commit. If the original change introduced something on purpose, fix it forward (e.g. add validation, handle edge cases, tighten logic) rather than deleting it. Similarly, if the original change intentionally deleted or simplified code, do not restore or re-add the removed code unless the finding is a legitimate correctness, reliability, or security issue and the smallest reasonable fix happens to reintroduce a small amount of previously deleted logic. When in doubt about whether code is intentional, leave it and report the finding as unresolved.
 - Do not add code comments explaining your fixes.
 - Verify that the issues are resolved before finishing.
-- Return JSON with a single "summary" field when you are done.
+- Return JSON with a required "summary" field and optional "resolutions" array when you are done.
 - The summary must be one concise sentence fragment suitable for a git commit subject.
-- Keep the summary under 10 words.%s
+- Keep the summary under 10 words.
+- Each "resolutions" item, when available, must include "finding_id", "applied_solution", "why_this_solution", and "changed_files".%s
 
 Previous review findings to address:
 %s`,
@@ -123,15 +124,18 @@ Previous review findings to address:
 		}
 		findingsJSON, _ := json.Marshal(noChangeFindings)
 		return &pipeline.StepOutcome{
-			Findings:   string(findingsJSON),
-			FixSummary: fixSummary,
+			Findings:                 string(findingsJSON),
+			FixSummary:               fixSummary,
+			FixCommitSHA:             sctx.LastFixCommitSHA,
+			NoCommitReason:           sctx.LastNoCommitReason,
+			FixResolutionDetailsJSON: sctx.LastFixResolutionDetailsJSON,
 		}, nil
 	}
 
 	// Ask agent to review
 	sctx.Log("reviewing changes...")
 
-	historySection := executionContextPromptSection() + roundHistoryPromptSection(sctx) + userIntentPromptSection(sctx)
+	historySection := executionContextPromptSection(sctx) + roundHistoryPromptSection(sctx) + userIntentPromptSection(sctx)
 
 	prompt := fmt.Sprintf(
 		`Review the code changes and return structured findings with a risk assessment.
@@ -202,10 +206,13 @@ Risk assessment (after listing all findings):
 	findingsJSON, _ := json.Marshal(findings)
 
 	return &pipeline.StepOutcome{
-		NeedsApproval: needsApproval,
-		AutoFixable:   len(findings.Items) > 0,
-		Findings:      string(findingsJSON),
-		FixSummary:    fixSummary,
+		NeedsApproval:            needsApproval,
+		AutoFixable:              len(findings.Items) > 0,
+		Findings:                 string(findingsJSON),
+		FixSummary:               fixSummary,
+		FixCommitSHA:             sctx.LastFixCommitSHA,
+		NoCommitReason:           sctx.LastNoCommitReason,
+		FixResolutionDetailsJSON: sctx.LastFixResolutionDetailsJSON,
 	}, nil
 }
 

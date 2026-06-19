@@ -50,6 +50,58 @@ func TestBuildPipelineSummary_AllClean(t *testing.T) {
 	}
 }
 
+func TestBuildPipelineSummaryWithReviewResolutionOmitsLocalPath(t *testing.T) {
+	t.Parallel()
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepReview, Status: types.StepStatusCompleted},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {{Round: 1, Trigger: "initial", DurationMS: 500}},
+	}
+	report := &db.ReviewResolutionReport{
+		ReportPath:         "/Users/dale/.no-mistakes/reports/run/review-resolution.md",
+		Status:             db.ReviewResolutionStatusFinal,
+		ResolvedCount:      1,
+		AcceptedCount:      1,
+		InformationalCount: 0,
+		StillOpenCount:     0,
+	}
+
+	md, _ := BuildPipelineSummaryWithReviewResolution(steps, rounds, report)
+
+	if !strings.Contains(md, "Review resolution: final; 1 resolved, 1 accepted without fix, 0 informational, 0 still open.") {
+		t.Fatalf("missing compact review resolution line:\n%s", md)
+	}
+	for _, forbidden := range []string{"/Users/dale", "$NM_HOME", "review-resolution.md"} {
+		if strings.Contains(md, forbidden) {
+			t.Fatalf("PR summary leaked local report path %q:\n%s", forbidden, md)
+		}
+	}
+}
+
+func TestBuildPipelineSummaryWithReviewResolutionStatusOverride(t *testing.T) {
+	t.Parallel()
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepReview, Status: types.StepStatusCompleted},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {{Round: 1, Trigger: "initial", DurationMS: 500}},
+	}
+	report := &db.ReviewResolutionReport{
+		Status:             db.ReviewResolutionStatusFinal,
+		ResolvedCount:      1,
+		AcceptedCount:      0,
+		InformationalCount: 0,
+		StillOpenCount:     0,
+	}
+
+	md, _ := BuildPipelineSummaryWithReviewResolutionStatus(steps, rounds, report, db.ReviewResolutionStatusEvidenceUnavailable)
+
+	if !strings.Contains(md, "Review resolution: evidence_unavailable; 1 resolved, 0 accepted without fix, 0 informational, 0 still open.") {
+		t.Fatalf("expected override status in PR summary:\n%s", md)
+	}
+}
+
 func TestBuildPipelineSummary_IncludesAllPipelineSteps(t *testing.T) {
 	steps := []*db.StepResult{
 		{ID: "s1", StepName: types.StepRebase, Status: types.StepStatusCompleted},

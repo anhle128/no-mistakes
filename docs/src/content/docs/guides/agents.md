@@ -13,7 +13,8 @@ have not configured explicit commands, auto-fixing, and setup-wizard suggestions
 when you leave prompts blank.
 
 Pipeline agent prompts also include a workspace-boundary preamble.
-It tells agents to keep intentional source, project, user-data, and system file writes inside the disposable worktree, avoid mutating system state such as Homebrew packages, `/Applications`, or global tool config, and treat that boundary as prompt steering rather than true enforcement.
+It tells agents to keep intentional source, project, user-data, and system file writes inside the selected run worktree, avoid mutating system state such as Homebrew packages, `/Applications`, or global tool config, and treat that boundary as prompt steering rather than true enforcement.
+In the default mode that boundary is a disposable no-mistakes worktree; with explicit `--no-worktree`, it is the current checkout and automated fix commits remain there.
 The only intentional out-of-worktree write it allows is test evidence under the managed temporary `no-mistakes-evidence` directory when a testing prompt asks for it; when in-repo evidence is enabled, test evidence stays inside the configured evidence directory instead.
 Incidental temp or cache writes from normal development tools are still allowed.
 Testing prompts also ask agents to remove transient working-tree artifacts they created, such as downloaded models, caches, build outputs, large binaries, or generated data directories, before reporting completion.
@@ -100,6 +101,7 @@ When CI is green but the PR is still open, `axi run` and `axi respond` return `o
 That is a successful agent stopping point: report that the PR is ready and ask the user to review and merge it.
 Successful outcomes also instruct the agent to summarize the run for the user.
 When the pipeline applied fixes, successful outcomes include a `fixes` table listing each fix so the agent can acknowledge what it missed and the user can review them.
+When Review findings produced a review-resolution report, AXI run objects may also include `review_resolution` with status, counts, and a local report path; summarize those compact fields for the user, but do not inline the full local report.
 
 In task-first mode, if the repo is on the default branch, the skill tells the agent to create a feature branch before committing because the gate validates committed history on a non-default branch.
 The agent should inspect `git status` before changing or committing anything, preserve unrelated pre-existing uncommitted changes, and commit only the changes that belong to the user's task.
@@ -108,6 +110,7 @@ Agents can also call `no-mistakes axi` directly:
 
 ```sh
 no-mistakes axi run --intent "the user's goal"
+no-mistakes axi run --intent "the user's goal" --no-worktree --yolo
 no-mistakes axi status
 no-mistakes axi respond --action approve
 no-mistakes axi logs --step review --full
@@ -121,11 +124,14 @@ If it shows `other_branch_active_run`, they should leave that run alone and star
 When an agent starts a new run, `--intent` is required and should describe what the user wanted to accomplish, not what files changed.
 Agents should prefer a few complete sentences over a terse summary, capturing user decisions, tradeoffs, constraints, ruled-out approaches, and explicit requests that would not be obvious from the diff alone.
 If the repo is on the default branch or has uncommitted changes, direct `axi run` returns a structured error with the command the agent should run instead of silently creating a branch or commit.
+Use `--no-worktree` only when the user or surrounding workflow explicitly wants no-mistakes to use the current checkout instead of creating a disposable worktree. In that mode the checkout must already be clean and on a non-default branch with a trustworthy default-branch review base, and any automated fix commits remain in that checkout. Treat `--yolo` only as spelling for `--yes`; it does not add a new approval mode.
+If AXI output includes `current_worktree_warning`, preserve that warning in your summary and do not tell the user that no-mistakes cleaned up the work directory.
 Approval gates are exposed as `gate:` objects with finding IDs, severities, files, actions, descriptions, and help commands for `no-mistakes axi respond`.
 An agent should resolve `action: auto-fix` findings on its own judgment, ignore `action: no-op` findings when approving, and stop on `action: ask-user` findings unless it is running with explicit `--yes` consent.
 When it stops for `ask-user`, it should relay each finding's ID, file, and full description to the user before choosing `approve`, `fix`, or `skip`.
 Resolving a finding always means responding with `no-mistakes axi respond --action fix`, which has the pipeline apply the fix and re-review it - the agent must not edit the code itself while a run is active.
 Successful outputs can be `outcome: passed` for a completed run or `outcome: checks-passed` when CI has passed and the daemon is still monitoring the unmerged PR for humans, and may include a `fixes` table when the pipeline applied fixes.
+Run objects may include `review_resolution` when Review findings existed; the object exposes compact status/counts and a local path to the Markdown report.
 
 ## Binary resolution
 

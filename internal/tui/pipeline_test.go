@@ -95,6 +95,29 @@ func TestRenderPipelineView_ShowsSteps(t *testing.T) {
 	}
 }
 
+func TestRenderPipelineView_IncludesReviewResolution(t *testing.T) {
+	run := testRun()
+	run.Status = types.RunCompleted
+	run.ReviewResolution = &ipc.ReviewResolutionReportInfo{
+		Exists:             true,
+		Path:               "/tmp/nm/reports/run-001/review-resolution.md",
+		Status:             "final",
+		ResolvedCount:      1,
+		AcceptedCount:      1,
+		InformationalCount: 0,
+		StillOpenCount:     0,
+	}
+
+	out := stripANSI(renderPipelineView(run, run.Steps, 120, 0, 40))
+
+	if !strings.Contains(out, "Review resolution: final; 1 resolved, 1 accepted, 0 info, 0 open") {
+		t.Fatalf("expected review resolution line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "review-resolution.md") {
+		t.Fatalf("expected local report path in TUI, got:\n%s", out)
+	}
+}
+
 func TestRenderPipelineView_HeaderHasSpacerBeforeSteps(t *testing.T) {
 	run := testRun()
 	run.Steps[0].Status = types.StepStatusRunning

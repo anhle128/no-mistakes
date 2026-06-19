@@ -52,3 +52,43 @@ func TestStepNameUnmarshalJSON_LegacyBabysit(t *testing.T) {
 		t.Fatalf("step = %q, want %q", step, StepCI)
 	}
 }
+
+func TestWorktreeModeValidationAndLabels(t *testing.T) {
+	tests := []struct {
+		mode      WorktreeMode
+		wantNorm  WorktreeMode
+		wantValid bool
+		wantLabel string
+	}{
+		{"", WorktreeModeIsolated, true, "disposable no-mistakes checkout"},
+		{WorktreeModeIsolated, WorktreeModeIsolated, true, "disposable no-mistakes checkout"},
+		{WorktreeModeCurrent, WorktreeModeCurrent, true, "uses this checkout"},
+		{"unknown", "unknown", false, "disposable no-mistakes checkout"},
+	}
+	for _, tt := range tests {
+		if got := NormalizeWorktreeMode(tt.mode); got != tt.wantNorm {
+			t.Fatalf("NormalizeWorktreeMode(%q) = %q, want %q", tt.mode, got, tt.wantNorm)
+		}
+		if got := tt.mode.Valid(); got != tt.wantValid {
+			t.Fatalf("%q.Valid() = %v, want %v", tt.mode, got, tt.wantValid)
+		}
+		if got := tt.mode.Label(); got != tt.wantLabel {
+			t.Fatalf("%q.Label() = %q, want %q", tt.mode, got, tt.wantLabel)
+		}
+	}
+}
+
+func TestMetadataAndEvidenceStateValidation(t *testing.T) {
+	if NormalizeMetadataAvailability("") != MetadataAvailable {
+		t.Fatal("empty metadata availability should normalize to available")
+	}
+	if !MetadataNotRecorded.Valid() || !MetadataInvalid.Valid() || MetadataAvailability("bad").Valid() {
+		t.Fatal("metadata availability validation mismatch")
+	}
+	if NormalizeEvidenceState("") != EvidenceComplete {
+		t.Fatal("empty evidence state should normalize to complete")
+	}
+	if !EvidenceIncomplete.Valid() || !EvidenceDegraded.Valid() || EvidenceState("bad").Valid() {
+		t.Fatal("evidence state validation mismatch")
+	}
+}

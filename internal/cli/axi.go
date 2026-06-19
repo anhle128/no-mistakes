@@ -13,6 +13,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/skill"
+	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
 
@@ -149,6 +150,7 @@ func runAxiHome(cmd *cobra.Command) error {
 	if currentActive != nil {
 		steps, _ := env.d.GetStepsByRun(currentActive.ID)
 		rv := runViewFromDB(currentActive, steps)
+		attachReviewResolutionFromDB(env.d, &rv)
 		fields = append(fields, runObjectFieldWithKey("active_run", rv))
 		if gate, ok := rv.awaitingStep(); ok {
 			gated = true
@@ -157,6 +159,7 @@ func runAxiHome(cmd *cobra.Command) error {
 	} else if otherActive != nil {
 		steps, _ := env.d.GetStepsByRun(otherActive.ID)
 		rv := runViewFromDB(otherActive, steps)
+		attachReviewResolutionFromDB(env.d, &rv)
 		fields = append(fields, runObjectFieldWithKey("other_branch_active_run", rv))
 	}
 
@@ -200,7 +203,12 @@ func runsFields(runs []*db.Run, limit int) []toon.Field {
 		if r.PRURL != nil {
 			pr = *r.PRURL
 		}
-		rows = append(rows, runRow{ID: r.ID, Branch: r.Branch, Status: string(r.Status), Head: shortSHA(r.HeadSHA), PR: pr})
+		mode := types.NormalizeWorktreeMode(r.WorktreeMode)
+		label := mode.Label()
+		if r.WorkDirLabel != nil && *r.WorkDirLabel != "" {
+			label = *r.WorkDirLabel
+		}
+		rows = append(rows, runRow{ID: r.ID, Branch: r.Branch, Status: string(r.Status), Head: shortSHA(r.HeadSHA), WorktreeMode: string(mode), WorkDirLabel: label, PR: pr})
 	}
 	return []toon.Field{
 		{Key: "count", Value: fmt.Sprintf("%d of %d total", len(shown), len(runs))},

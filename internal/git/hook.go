@@ -35,11 +35,20 @@ NM_BIN=` + shellSingleQuote(command) + `
 if [ ! -f "$NM_BIN" ]; then
   NM_BIN="$(command -v no-mistakes 2>/dev/null || echo no-mistakes)"
 fi
-LOG="$(pwd)/notify-push.log"
 nm_ts() { date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || echo unknown; }
 notify_failed=0
+hook_dir=$(dirname "$0")
+if [ "$hook_dir" = "." ]; then
+  GATE_DIR=$(pwd -P)
+else
+  GATE_DIR=$(cd "$hook_dir/.." 2>/dev/null && pwd -P)
+fi
+if [ -z "$GATE_DIR" ]; then
+  GATE_DIR=$(pwd -P)
+fi
+LOG="$GATE_DIR/notify-push.log"
 while read oldrev newrev refname; do
-	  set -- --gate "$(pwd)" \
+	  set -- --gate "$GATE_DIR" \
 	    --ref "$refname" \
 	    --old "$oldrev" \
 	    --new "$newrev"

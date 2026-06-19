@@ -15,13 +15,13 @@ daemon registers the new run.
 
 The wizard kicks in when:
 
-- You're in an interactive terminal, or you passed `no-mistakes -y` / `no-mistakes --yes`.
+- You're in an interactive terminal, or you passed `no-mistakes -y` / `no-mistakes --yes` / `no-mistakes --yolo`.
 - The gate is initialized for the current repo (`no-mistakes init` has been run).
 - There's no active run on the current branch.
 
 In non-interactive contexts, bare `no-mistakes` without `-y` falls back to listing the last 5 runs instead.
 
-With `-y` / `--yes`, the wizard takes the default automated path for each step: use agent suggestions for branch and commit when needed, then push to the gate. In a TTY, that path stays visible and auto-advances through the wizard. Without a TTY, it falls back to the headless path.
+With `-y` / `--yes` / `--yolo`, the wizard takes the default automated path for each step: use agent suggestions for branch and commit when needed, then push to the gate. In a TTY, that path stays visible and auto-advances through the wizard. Without a TTY, it falls back to the headless path. `--yolo` is only an alias for `--yes`.
 
 Pass `--skip` to skip comma-separated pipeline steps for the new run created by the wizard, for example `no-mistakes --skip test,lint`.
 It only applies when the wizard starts a new pipeline run; if bare `no-mistakes` attaches to an active run or lists recent runs, `--skip` exits with an error.
@@ -34,7 +34,7 @@ If you want to attach to *any* active run in the repo (not just the current bran
 flowchart TD
   start["Run no-mistakes"] --> active{"Active run on current branch?"}
   active -- "yes" --> attach["Attach to run"]
-  active -- "no" --> interactive{"Interactive terminal, or -y/--yes, and gate initialized?"}
+  active -- "no" --> interactive{"Interactive terminal, or -y/--yes/--yolo, and gate initialized?"}
   interactive -- "no" --> recent["Show recent runs"]
   interactive -- "yes" --> branch["Branch step if needed"]
   branch --> commit["Commit step if needed"]
@@ -46,7 +46,7 @@ flowchart TD
 
 ## Steps
 
-The interactive wizard is a full-screen flow that runs only the steps your current repo state needs, up to three total. The `-y` / `--yes` path runs the same steps and accepts the automated default at each one. In a TTY, the TUI stays visible and auto-advances. Without a TTY, it runs headlessly.
+The interactive wizard is a full-screen flow that runs only the steps your current repo state needs, up to three total. The `-y` / `--yes` / `--yolo` path runs the same steps and accepts the automated default at each one. In a TTY, the TUI stays visible and auto-advances. Without a TTY, it runs headlessly.
 
 While the wizard is running, it also updates your terminal window title with the current setup step and branch. On exit or cancel, it clears that temporary title.
 
@@ -81,7 +81,7 @@ not ask for one. If everything is already committed, it skips straight to push.
 
 If any step fails (git error, agent error, network error), the interactive wizard shows the error and lets you press `r` to retry the step without restarting the whole flow.
 
-With `-y` / `--yes`, the wizard exits on the first error instead of prompting to retry, whether it is auto-advancing in a TTY or running headlessly.
+With `-y` / `--yes` / `--yolo`, the wizard exits on the first error instead of prompting to retry, whether it is auto-advancing in a TTY or running headlessly.
 
 ## Quitting safely
 

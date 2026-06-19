@@ -113,10 +113,28 @@ func (s *PushStep) stageInRepoEvidence(sctx *pipeline.StepContext) error {
 	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return nil
 	}
-	if _, err := git.Run(ctx, sctx.WorkDir, "add", "-f", "--", filepath.ToSlash(rel)); err != nil {
-		return fmt.Errorf("stage test evidence: %w", err)
-	}
-	return nil
+	return filepath.WalkDir(location.Dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		fileRel, err := filepath.Rel(sctx.WorkDir, path)
+		if err != nil || strings.HasPrefix(fileRel, ".."+string(filepath.Separator)) || filepath.IsAbs(fileRel) {
+			return nil
+		}
+		slashRel := filepath.ToSlash(fileRel)
+		if isRepoLocalReviewResolutionReport(slashRel) {
+			return nil
+		}
+		if _, err := git.Run(ctx, sctx.WorkDir, "add", "-f", "--", slashRel); err != nil {
+			return fmt.Errorf("stage test evidence %s: %w", slashRel, err)
+		}
+		return nil
+	})
+}
+
+func isRepoLocalReviewResolutionReport(rel string) bool {
+	rel = strings.TrimPrefix(filepath.ToSlash(rel), "./")
+	return strings.HasPrefix(rel, "no-mistakes/") && strings.HasSuffix(rel, "/review-resolution.md")
 }
 
 func dirHasFiles(dir string) bool {

@@ -16,7 +16,8 @@ When set, everything else moves under this root:
 
 - Global config: `$NM_HOME/config.yaml`
 - Gate repos: `$NM_HOME/repos/<id>.git`
-- Worktrees: `$NM_HOME/worktrees/<repoID>/<runID>/`
+- Disposable worktrees: `$NM_HOME/worktrees/<repoID>/<runID>/`
+- Review resolution reports: `$NM_HOME/reports/<runID>/review-resolution.md`
 - Logs: `$NM_HOME/logs/`
 - Database: `$NM_HOME/state.sqlite`
 - Socket / PID: `$NM_HOME/socket` and `$NM_HOME/daemon.pid`
@@ -103,7 +104,7 @@ When set, telemetry uses this website ID at runtime. If it is unset in a dev bui
 
 When telemetry is enabled, `no-mistakes` sends command, run, approval, fix, and wizard events, completed step events with `awaiting_approval`, `fix_review`, or `failed` status, and pageviews for the human surfaces `/wizard` and `/tui` and the agent surfaces `/axi`, `/axi/run`, `/axi/respond`, `/axi/status`, `/axi/logs`, and `/axi/abort` to Umami.
 AXI pageviews are sent alongside command events, so command status and duration remain available.
-They include only flag-derived context: `/axi/run` records whether `--yes`, `--intent`, or `--skip` was present; `/axi/respond` records the sanitized action and whether `--yes` was present; `/axi/status` records whether `--run` was present; and `/axi/logs` records the sanitized step, whether `--full` was present, and whether `--run` was present.
+They include only flag-derived context: `/axi/run` records whether `--yes`, `--yolo`, `--intent`, `--no-worktree`, or `--skip` was present; `/axi/respond` records the sanitized action and whether `--yes` was present; `/axi/status` records whether `--run` was present; and `/axi/logs` records the sanitized step, whether `--full` was present, and whether `--run` was present.
 
 ## `NO_MISTAKES_TELEMETRY`
 

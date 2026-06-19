@@ -17,6 +17,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/shellenv"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 )
@@ -244,7 +245,8 @@ func writeDaemonPIDFile(path string, record daemonPIDFile) error {
 
 // recoverOnStartup cleans up after a previous daemon crash by marking stale
 // runs/steps as failed, killing orphaned managed-server subprocesses
-// (opencode, rovodev), and removing orphaned worktree directories. It also
+// (opencode, rovodev), and removing orphaned managed disposable worktree
+// directories. It also
 // best-effort migrates gate bare repos in place so older installs pick up
 // the per-worktree hookspath isolation introduced for issue #122 when Git
 // supports config --worktree.
@@ -252,6 +254,10 @@ func recoverOnStartup(d *db.DB, p *paths.Paths) {
 	reapOrphanedServers(p)
 	migrateGateConfigs(context.Background(), p)
 
+	staleRuns, staleErr := d.GetActiveRuns()
+	if staleErr != nil {
+		slog.Warn("failed to list stale runs before recovery", "error", staleErr)
+	}
 	count, err := d.RecoverStaleRuns("daemon crashed during execution")
 	if err != nil {
 		slog.Error("failed to recover stale runs", "error", err)
@@ -260,8 +266,16 @@ func recoverOnStartup(d *db.DB, p *paths.Paths) {
 	if count > 0 {
 		slog.Info("recovered stale runs from previous crash", "count", count)
 	}
+	for _, run := range staleRuns {
+		if run == nil {
+			continue
+		}
+		if _, err := reviewreport.Refresh(d, p, run.ID); err != nil {
+			slog.Warn("failed to refresh review resolution report after stale-run recovery", "run_id", run.ID, "error", err)
+		}
+	}
 
-	// Clean up orphaned worktree directories.
+	// Clean up orphaned managed disposable worktree directories.
 	wtRoot := p.WorktreesDir()
 	entries, err := os.ReadDir(wtRoot)
 	if err != nil {
@@ -408,6 +422,18 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 		return &ipc.RerunResult{RunID: runID}, nil
 	})
 
+	srv.Handle(ipc.MethodStartRun, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
+		var p ipc.StartRunParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		runID, resumed, err := mgr.HandleStartRun(ctx, &p)
+		if err != nil {
+			return nil, err
+		}
+		return &ipc.StartRunResult{RunID: runID, Resumed: resumed}, nil
+	})
+
 	srv.Handle(ipc.MethodPushReceived, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
 		var p ipc.PushReceivedParams
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -470,21 +496,62 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 
 func runToInfo(d *db.DB, r *db.Run, steps []*db.StepResult) *ipc.RunInfo {
 	info := &ipc.RunInfo{
-		ID:        r.ID,
-		RepoID:    r.RepoID,
-		Branch:    r.Branch,
-		HeadSHA:   r.HeadSHA,
-		BaseSHA:   r.BaseSHA,
-		Status:    r.Status,
-		PRURL:     r.PRURL,
-		Error:     r.Error,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		ID:                         r.ID,
+		RepoID:                     r.RepoID,
+		Branch:                     r.Branch,
+		HeadSHA:                    r.HeadSHA,
+		BaseSHA:                    r.BaseSHA,
+		Status:                     r.Status,
+		PRURL:                      r.PRURL,
+		Error:                      r.Error,
+		WorktreeMode:               r.WorktreeMode,
+		MetadataAvailability:       r.MetadataAvailability,
+		EvidenceState:              r.EvidenceState,
+		ReviewBaseRefreshAttempted: r.ReviewBaseRefreshAttempted,
+		CreatedAt:                  r.CreatedAt,
+		UpdatedAt:                  r.UpdatedAt,
+	}
+	if r.WorkDir != nil {
+		info.WorkDir = *r.WorkDir
+	}
+	if r.WorkDirLabel != nil {
+		info.WorkDirLabel = *r.WorkDirLabel
+	}
+	if r.CurrentWorktreeWarning != nil {
+		info.CurrentWorktreeWarning = *r.CurrentWorktreeWarning
+	}
+	if r.TerminalReason != nil {
+		info.TerminalReason = *r.TerminalReason
+	}
+	if r.ReviewBaseRef != nil {
+		info.ReviewBaseRef = *r.ReviewBaseRef
+	}
+	if r.ReviewBaseRefreshError != nil {
+		info.ReviewBaseRefreshError = *r.ReviewBaseRefreshError
+	}
+	if r.RejectionReason != nil {
+		info.RejectionReason = *r.RejectionReason
 	}
 	if len(steps) > 0 {
 		info.Steps = make([]ipc.StepResultInfo, 0, len(steps))
 		for _, s := range steps {
 			info.Steps = append(info.Steps, stepToInfo(d, s))
+		}
+	}
+	if report, err := d.GetReviewResolutionReport(r.ID); err == nil && report != nil {
+		info.ReviewResolution = &ipc.ReviewResolutionReportInfo{
+			Exists:             true,
+			Path:               report.ReportPath,
+			Status:             reviewreport.MetadataStatusForRun(d, r.ID, report),
+			ResolvedCount:      report.ResolvedCount,
+			AcceptedCount:      report.AcceptedCount,
+			InformationalCount: report.InformationalCount,
+			StillOpenCount:     report.StillOpenCount,
+			ReportVersion:      report.ReportVersion,
+			EntryCount:         report.EntryCount,
+			LastRefreshedAt:    report.LastRefreshedAt,
+			FinalizedAt:        report.FinalizedAt,
+			LastRefreshResult:  report.LastRefreshResult,
 		}
 	}
 	return info

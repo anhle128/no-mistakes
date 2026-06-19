@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -55,7 +57,9 @@ func outcomeFor(status string) string {
 }
 
 func newAxiRunCmd() *cobra.Command {
-	var autoYes bool
+	var yesFlag bool
+	var yoloFlag bool
+	var noWorktree bool
 	var skipValue string
 	var intent string
 
@@ -73,27 +77,32 @@ func newAxiRunCmd() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			autoYes := yesFlag || yoloFlag
 			return trackAxiSurface("axi-run", "/axi/run", telemetry.Fields{
-				"auto_yes":   autoYes,
-				"has_intent": strings.TrimSpace(intent) != "",
-				"has_skip":   strings.TrimSpace(skipValue) != "",
+				"auto_yes":    autoYes,
+				"yolo":        yoloFlag,
+				"no_worktree": noWorktree,
+				"has_intent":  strings.TrimSpace(intent) != "",
+				"has_skip":    strings.TrimSpace(skipValue) != "",
 			}, func() error {
 				skipSteps, err := parseSkipSteps(skipValue)
 				if err != nil {
 					return emitError(cmd, 2, err.Error(),
 						"Valid steps: intent, rebase, review, test, document, lint, push, pr, ci")
 				}
-				return runAxiRun(cmd, autoYes, skipSteps, intent)
+				return runAxiRun(cmd, autoYes, noWorktree, skipSteps, intent)
 			})
 		},
 	}
-	cmd.Flags().BoolVarP(&autoYes, "yes", "y", false, "auto-resolve every gate (fix findings, then accept) until a decision point or outcome")
+	cmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "auto-resolve every gate (fix findings, then accept) until a decision point or outcome")
+	cmd.Flags().BoolVar(&yoloFlag, "yolo", false, "alias for --yes")
+	cmd.Flags().BoolVar(&noWorktree, "no-worktree", false, "run in the current git worktree instead of a disposable no-mistakes checkout")
 	cmd.Flags().StringVar(&skipValue, "skip", "", "comma-separated pipeline steps to skip")
 	cmd.Flags().StringVar(&intent, "intent", "", "what the user set out to accomplish (not a description of the diff); used instead of inferring from transcripts (required to start a run)")
 	return cmd
 }
 
-func runAxiRun(cmd *cobra.Command, autoYes bool, skipSteps []types.StepName, intent string) error {
+func runAxiRun(cmd *cobra.Command, autoYes bool, noWorktree bool, skipSteps []types.StepName, intent string) error {
 	ctx := cmd.Context()
 	env, err := openAxiEnv(true)
 	if err != nil {
@@ -115,7 +124,15 @@ func runAxiRun(cmd *cobra.Command, autoYes bool, skipSteps []types.StepName, int
 		return emitError(cmd, 1, fmt.Sprintf("get current HEAD: %v", err))
 	}
 
-	runID := activeRunID(env, branch, headSHA)
+	var runID string
+	if noWorktree {
+		runID, err = ensureCurrentWorktreeRun(ctx, env, branch, headSHA, skipSteps, intent, true)
+		if err != nil {
+			return emitError(cmd, 1, err.Error(), currentWorktreeRecoveryHelp(err)...)
+		}
+	} else {
+		runID = activeRunID(env, branch, headSHA)
+	}
 	if runID == "" {
 		// Intent is mandatory when starting a run: the agent driving this knows
 		// the change's intent, so we take it directly instead of inferring it
@@ -144,6 +161,79 @@ func runAxiRun(cmd *cobra.Command, autoYes bool, skipSteps []types.StepName, int
 		return emitError(cmd, 1, fmt.Sprintf("drive run: %v", err))
 	}
 	return renderDriveResult(cmd, run, ciReady)
+}
+
+func ensureCurrentWorktreeRun(ctx context.Context, env *axiEnv, branch, headSHA string, skipSteps []types.StepName, intent string, requireIntent bool) (string, error) {
+	workDir, err := git.CurrentWorktreeRoot(ctx, ".")
+	if err != nil {
+		return "", err
+	}
+	var result ipc.StartRunResult
+	err = env.client.Call(ipc.MethodStartRun, &ipc.StartRunParams{
+		RepoID:        env.repo.ID,
+		Branch:        branch,
+		HeadSHA:       headSHA,
+		WorktreeMode:  types.WorktreeModeCurrent,
+		WorkDir:       workDir,
+		SkipSteps:     skipSteps,
+		Intent:        intent,
+		RequireIntent: requireIntent,
+	}, &result)
+	if err != nil {
+		return "", err
+	}
+	return result.RunID, nil
+}
+
+func currentWorktreeRecoveryHelp(err error) []string {
+	if err == nil {
+		return nil
+	}
+	if data, ok := currentWorktreeStartErrorDataFromRPC(err); ok && strings.TrimSpace(data.Recovery) != "" {
+		return []string{data.Recovery}
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, string(types.RejectionDirtyWorktree)):
+		return []string{"Commit or remove tracked changes and untracked non-ignored files, then re-run", "Ignored files do not block current-worktree mode"}
+	case strings.Contains(msg, string(types.RejectionDefaultBranch)):
+		return []string{"Switch to a feature branch, then re-run"}
+	case strings.Contains(msg, string(types.RejectionNoTrustworthyBase)):
+		return []string{"Fetch the default branch or restore the origin remote so no-mistakes can prove the full branch review base"}
+	case strings.Contains(msg, string(types.RejectionRepoMismatch)):
+		return []string{"Run no-mistakes init in this checkout, or retry from the registered repo"}
+	case strings.Contains(msg, "--intent"):
+		return []string{`Pass what the user set out to accomplish: no-mistakes axi run --intent "the user's goal" --no-worktree --yolo`}
+	default:
+		return nil
+	}
+}
+
+type currentWorktreeStartErrorData struct {
+	Reason   string `json:"reason"`
+	Recovery string `json:"recovery"`
+}
+
+func currentWorktreeStartErrorDataFromRPC(err error) (currentWorktreeStartErrorData, bool) {
+	var rpcErr *ipc.RPCError
+	if !errors.As(err, &rpcErr) || len(rpcErr.Data) == 0 {
+		return currentWorktreeStartErrorData{}, false
+	}
+	var data currentWorktreeStartErrorData
+	if json.Unmarshal(rpcErr.Data, &data) != nil {
+		return currentWorktreeStartErrorData{}, false
+	}
+	if strings.TrimSpace(data.Reason) == "" && strings.TrimSpace(data.Recovery) == "" {
+		return currentWorktreeStartErrorData{}, false
+	}
+	return data, true
+}
+
+func nonEmpty(value, defaultValue string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return defaultValue
 }
 
 // activeRunID returns the ID of a non-terminal run for branch and head, or "" if none.
@@ -221,9 +311,27 @@ func triggerRun(ctx context.Context, env *axiEnv, branch, headSHA string, skipSt
 	// head so `axi run` is still useful when there are no new commits.
 	var rr ipc.RerunResult
 	if err := env.client.Call(ipc.MethodRerun, rerunParams(env.repo.ID, branch, skipSteps, intent), &rr); err != nil {
-		return "", fmt.Errorf("no run started for %q: %v", branch, err)
+		return "", fmt.Errorf("no run started for %q: %v%s", branch, err, notifyPushFailureHint(env.p, env.repo.ID))
 	}
 	return rr.RunID, nil
+}
+
+func notifyPushFailureHint(p *paths.Paths, repoID string) string {
+	if p == nil || repoID == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(p.RepoDir(repoID), "notify-push.log"))
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return "\nlatest notify-push failure:\n" + tailString(string(data), 4000)
+}
+
+func tailString(s string, limit int) string {
+	if limit <= 0 || len(s) <= limit {
+		return s
+	}
+	return s[len(s)-limit:]
 }
 
 func waitForActiveRunForHead(ctx context.Context, client *ipc.Client, repoID, branch, headSHA string, timeout time.Duration) (*ipc.RunInfo, error) {

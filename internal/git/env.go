@@ -2,6 +2,7 @@ package git
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 )
 
@@ -33,7 +34,13 @@ func NonInteractiveEnv(dir string) []string {
 	// Mirror os/exec, which only injects PWD when Cmd.Env is nil and skips it
 	// on these platforms.
 	if dir != "" && runtime.GOOS != "windows" && runtime.GOOS != "plan9" {
-		env = append(env, "PWD="+dir)
+		pwd := dir
+		if !filepath.IsAbs(pwd) {
+			if abs, err := filepath.Abs(pwd); err == nil {
+				pwd = abs
+			}
+		}
+		env = append(env, "PWD="+pwd)
 	}
 	return env
 }

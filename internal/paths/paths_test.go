@@ -66,6 +66,18 @@ func TestLogPaths(t *testing.T) {
 	}
 }
 
+func TestReportPaths(t *testing.T) {
+	root := filepath.Join("tmp", "nm-test")
+	p := WithRoot(root)
+
+	if got := p.ReportsDir(); got != filepath.Join(root, "reports") {
+		t.Errorf("ReportsDir() = %q", got)
+	}
+	if got := p.ReviewResolutionReportPath("run1"); got != filepath.Join(root, "reports", "run1", "review-resolution.md") {
+		t.Errorf("ReviewResolutionReportPath() = %q", got)
+	}
+}
+
 func TestNewWithEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("NM_HOME", dir)
@@ -101,7 +113,7 @@ func TestEnsureDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, d := range []string{p.Root(), p.ReposDir(), p.WorktreesDir(), p.LogsDir(), p.ServerPIDsDir()} {
+	for _, d := range []string{p.Root(), p.ReposDir(), p.WorktreesDir(), p.LogsDir(), p.ReportsDir(), p.ServerPIDsDir()} {
 		info, err := os.Stat(d)
 		if err != nil {
 			t.Errorf("expected dir %q to exist: %v", d, err)

@@ -37,6 +37,19 @@ type testingSummaryOptions struct {
 
 // BuildPipelineSummary produces a deterministic markdown section from step results and rounds.
 func BuildPipelineSummary(steps []*db.StepResult, rounds map[string][]*db.StepRound) (string, string) {
+	return BuildPipelineSummaryWithReviewResolution(steps, rounds, nil)
+}
+
+// BuildPipelineSummaryWithReviewResolution renders the PR Pipeline section and
+// includes compact Review resolution counts when metadata exists.
+func BuildPipelineSummaryWithReviewResolution(steps []*db.StepResult, rounds map[string][]*db.StepRound, report *db.ReviewResolutionReport) (string, string) {
+	return BuildPipelineSummaryWithReviewResolutionStatus(steps, rounds, report, "")
+}
+
+// BuildPipelineSummaryWithReviewResolutionStatus is like
+// BuildPipelineSummaryWithReviewResolution, but lets callers surface a
+// reconciled metadata status such as stale or evidence_unavailable.
+func BuildPipelineSummaryWithReviewResolutionStatus(steps []*db.StepResult, rounds map[string][]*db.StepRound, report *db.ReviewResolutionReport, statusOverride string) (string, string) {
 	if len(steps) == 0 {
 		return "", ""
 	}
@@ -60,6 +73,11 @@ func BuildPipelineSummary(steps []*db.StepResult, rounds map[string][]*db.StepRo
 
 	var b strings.Builder
 	b.WriteString("## Pipeline\n\nUpdates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)\n\n")
+	if line := reviewResolutionPRLineWithStatus(report, statusOverride); line != "" {
+		b.WriteString("- ")
+		b.WriteString(line)
+		b.WriteString("\n\n")
+	}
 	for i, detail := range detailBlocks {
 		if i > 0 {
 			b.WriteString("\n")
@@ -69,6 +87,30 @@ func BuildPipelineSummary(steps []*db.StepResult, rounds map[string][]*db.StepRo
 
 	riskLine := extractRiskLine(steps, rounds)
 	return b.String(), riskLine
+}
+
+func reviewResolutionPRLine(report *db.ReviewResolutionReport) string {
+	return reviewResolutionPRLineWithStatus(report, "")
+}
+
+func reviewResolutionPRLineWithStatus(report *db.ReviewResolutionReport, statusOverride string) string {
+	if report == nil {
+		return ""
+	}
+	status := strings.TrimSpace(statusOverride)
+	if status == "" {
+		status = strings.TrimSpace(report.Status)
+	}
+	if status == "" {
+		status = db.ReviewResolutionStatusEvidenceUnavailable
+	}
+	return fmt.Sprintf("Review resolution: %s; %d resolved, %d accepted without fix, %d informational, %d still open.",
+		status,
+		report.ResolvedCount,
+		report.AcceptedCount,
+		report.InformationalCount,
+		report.StillOpenCount,
+	)
 }
 
 // BuildTestingSummary extracts a deterministic Testing section from the test step.

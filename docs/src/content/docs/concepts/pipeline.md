@@ -4,6 +4,7 @@ description: The nine steps that run on every gated push.
 ---
 
 The pipeline runs a fixed, opinionated sequence of steps. Order is not configurable. What each step runs *is*.
+By default it runs in a disposable no-mistakes-owned worktree. When you explicitly pass `--no-worktree`, the same pipeline runs in the canonical current git worktree root after clean-branch and review-base preflight checks.
 
 ```
 intent → rebase → review → test → document → lint → push → pr → ci
@@ -27,8 +28,11 @@ The pipeline is opinionated so that "passed the gate" has a stable meaning:
 
 - the branch was checked against fresh upstream first
 - review, tests, user-facing test evidence when available, docs, and lint happened before any upstream push
+- Review findings, when present, have a local resolution report and compact metadata showing resolved, accepted, informational, and still-open counts
 - the human stayed in control when a step needed judgment
 - push, PR creation, and CI monitoring only happened after the local gate was satisfied
+
+In current-worktree mode, "passed the gate" has the same pipeline meaning, but automated fixes and commits are left in the current checkout instead of a disposable directory. Output surfaces label that run as `uses this checkout` and keep cleanup disabled for that directory.
 
 ## The nine steps
 
@@ -77,6 +81,7 @@ You can't reorder steps. You *can*:
 - Ignore paths during review and documentation checks.
 - Disable or tune transcript-based intent extraction when intent is not supplied directly.
 - Skip steps for one run with `no-mistakes --skip <steps>`, `git push -o no-mistakes.skip=<steps>`, `no-mistakes axi run --skip <steps>`, or from the TUI.
+- Choose the current checkout instead of a disposable worktree for one run with `no-mistakes axi run --intent "..." --no-worktree`.
 
 See [Configuration](/no-mistakes/guides/configuration/).
 

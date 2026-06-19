@@ -72,6 +72,7 @@ git push no-mistakes
 ```
 
 The push lands in the local bare repo, the hook notifies the daemon, and the daemon starts the pipeline in a disposable worktree.
+If an agent workflow explicitly needs to validate the checkout you are already standing in, use `no-mistakes axi run --intent "..." --no-worktree` instead of the push trigger; that current-worktree mode requires a clean non-default branch and leaves automated fix commits in that checkout.
 
 ## 5. Watch the pipeline
 
@@ -111,7 +112,7 @@ The pipeline runs these steps in order:
 
 1. **Intent** - use agent-supplied intent when present, otherwise infer author intent from recent local agent transcripts
 2. **Rebase** - onto the latest upstream
-3. **Review** - AI code review of your diff
+3. **Review** - AI code review of your diff; findings get a local resolution report
 4. **Test** - baseline tests plus evidence checks when intent is known
 5. **Document** - updates docs and reports unresolved gaps
 6. **Lint** - your linters (configured command or agent-detected)

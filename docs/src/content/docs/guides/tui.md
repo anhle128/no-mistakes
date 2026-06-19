@@ -45,6 +45,7 @@ Shows the branch name and run status in the header, followed by each step:
 
 ```
   feature/login-fix  running
+  Review resolution: final; 1 resolved, 1 accepted, 0 info, 0 open - ~/.no-mistakes/reports/<runID>/review-resolution.md
   ────────────────────────────
   – Intent
   │
@@ -79,6 +80,7 @@ Step status icons:
 Completed steps show their duration.
 Steps with fixed findings, and steps currently fixing reported findings, show a right-aligned count such as `2/3 fixed` or `0/3 fixed`.
 The first number counts completed fixes, not findings selected for an in-progress fix.
+When a Review resolution report exists, the pipeline header shows compact status/counts and the local report path. Status can be `in_progress`, `final`, `incomplete`, `stale`, `degraded`, or `evidence_unavailable`; non-final, still-open, stale, degraded, and evidence-unavailable reports use warning-colored wording.
 Connectors (`│`) between steps are hidden when the terminal height is under 30 lines.
 
 ### Findings panel
@@ -122,6 +124,12 @@ After a fix cycle, press `d` to toggle the diff view:
 During running steps, shows streaming agent output. Lines starting with `PASS` are green, `FAIL` are red, everything else is dim.
 
 On narrow terminals, the log panel expands to fill the remaining vertical space below the pipeline box instead of staying at the compact fixed height used in shorter layouts.
+
+### Current-worktree warning
+
+Runs started with `--no-worktree` show a warning box labeled `Current worktree`.
+It uses a safe work-directory label instead of the full path and reminds you that pipeline fixes may modify the checkout you are standing in.
+The warning remains visible across running, paused, and terminal states; no-mistakes does not clean up that checkout.
 
 ### CI panel
 

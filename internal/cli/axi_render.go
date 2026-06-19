@@ -7,6 +7,7 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -34,11 +35,13 @@ type findingRow struct {
 }
 
 type runRow struct {
-	ID     string `toon:"id"`
-	Branch string `toon:"branch"`
-	Status string `toon:"status"`
-	Head   string `toon:"head"`
-	PR     string `toon:"pr"`
+	ID           string `toon:"id"`
+	Branch       string `toon:"branch"`
+	Status       string `toon:"status"`
+	Head         string `toon:"head"`
+	WorktreeMode string `toon:"worktree_mode"`
+	WorkDirLabel string `toon:"work_dir_label"`
+	PR           string `toon:"pr"`
 }
 
 // logRow is a single log line; a []logRow renders as a block array so multiline
@@ -66,24 +69,38 @@ type stepView struct {
 
 // runView is a render-ready view of a pipeline run.
 type runView struct {
-	ID      string
-	Branch  string
-	Status  string
-	HeadSHA string
-	PRURL   string
-	Steps   []stepView
+	ID                     string
+	Branch                 string
+	Status                 string
+	HeadSHA                string
+	PRURL                  string
+	WorktreeMode           types.WorktreeMode
+	WorkDirLabel           string
+	CurrentWorktreeWarning string
+	MetadataAvailability   types.MetadataAvailability
+	EvidenceState          types.EvidenceState
+	TerminalReason         string
+	ReviewResolution       *ipc.ReviewResolutionReportInfo
+	Steps                  []stepView
 }
 
 func runViewFromIPC(r *ipc.RunInfo) runView {
 	rv := runView{
-		ID:      r.ID,
-		Branch:  r.Branch,
-		Status:  string(r.Status),
-		HeadSHA: r.HeadSHA,
+		ID:                     r.ID,
+		Branch:                 r.Branch,
+		Status:                 string(r.Status),
+		HeadSHA:                r.HeadSHA,
+		WorktreeMode:           types.NormalizeWorktreeMode(r.WorktreeMode),
+		WorkDirLabel:           nonEmpty(r.WorkDirLabel, types.NormalizeWorktreeMode(r.WorktreeMode).Label()),
+		CurrentWorktreeWarning: r.CurrentWorktreeWarning,
+		MetadataAvailability:   types.NormalizeMetadataAvailability(r.MetadataAvailability),
+		EvidenceState:          types.NormalizeEvidenceState(r.EvidenceState),
+		TerminalReason:         r.TerminalReason,
 	}
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
 	}
+	rv.ReviewResolution = r.ReviewResolution
 	for _, s := range r.Steps {
 		sv := stepView{Name: string(s.StepName), Status: string(s.Status), FixSummaries: s.FixSummaries}
 		if s.DurationMS != nil {
@@ -99,10 +116,23 @@ func runViewFromIPC(r *ipc.RunInfo) runView {
 
 func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 	rv := runView{
-		ID:      r.ID,
-		Branch:  r.Branch,
-		Status:  string(r.Status),
-		HeadSHA: r.HeadSHA,
+		ID:                   r.ID,
+		Branch:               r.Branch,
+		Status:               string(r.Status),
+		HeadSHA:              r.HeadSHA,
+		WorktreeMode:         types.NormalizeWorktreeMode(r.WorktreeMode),
+		WorkDirLabel:         types.NormalizeWorktreeMode(r.WorktreeMode).Label(),
+		MetadataAvailability: types.NormalizeMetadataAvailability(r.MetadataAvailability),
+		EvidenceState:        types.NormalizeEvidenceState(r.EvidenceState),
+	}
+	if r.WorkDirLabel != nil {
+		rv.WorkDirLabel = *r.WorkDirLabel
+	}
+	if r.CurrentWorktreeWarning != nil {
+		rv.CurrentWorktreeWarning = *r.CurrentWorktreeWarning
+	}
+	if r.TerminalReason != nil {
+		rv.TerminalReason = *r.TerminalReason
 	}
 	if r.PRURL != nil {
 		rv.PRURL = *r.PRURL
@@ -118,6 +148,30 @@ func runViewFromDB(r *db.Run, steps []*db.StepResult) runView {
 		rv.Steps = append(rv.Steps, sv)
 	}
 	return rv
+}
+
+func attachReviewResolutionFromDB(d *db.DB, rv *runView) {
+	if d == nil || rv == nil || rv.ID == "" {
+		return
+	}
+	report, err := d.GetReviewResolutionReport(rv.ID)
+	if err != nil || report == nil {
+		return
+	}
+	rv.ReviewResolution = &ipc.ReviewResolutionReportInfo{
+		Exists:             true,
+		Path:               report.ReportPath,
+		Status:             reviewreport.MetadataStatusForRun(d, rv.ID, report),
+		ResolvedCount:      report.ResolvedCount,
+		AcceptedCount:      report.AcceptedCount,
+		InformationalCount: report.InformationalCount,
+		StillOpenCount:     report.StillOpenCount,
+		ReportVersion:      report.ReportVersion,
+		EntryCount:         report.EntryCount,
+		LastRefreshedAt:    report.LastRefreshedAt,
+		FinalizedAt:        report.FinalizedAt,
+		LastRefreshResult:  report.LastRefreshResult,
+	}
 }
 
 // awaitingStep returns the step currently blocking on a human decision, if any.
@@ -229,11 +283,35 @@ func runObjectFieldWithKey(key string, rv runView) toon.Field {
 		{Key: "branch", Value: rv.Branch},
 		{Key: "status", Value: rv.Status},
 		{Key: "head", Value: shortSHA(rv.HeadSHA)},
+		{Key: "worktree_mode", Value: string(rv.WorktreeMode)},
+		{Key: "work_dir_label", Value: rv.WorkDirLabel},
+	}
+	if rv.CurrentWorktreeWarning != "" {
+		fields = append(fields, toon.Field{Key: "current_worktree_warning", Value: rv.CurrentWorktreeWarning})
+	}
+	if rv.MetadataAvailability != "" && rv.MetadataAvailability != types.MetadataAvailable {
+		fields = append(fields, toon.Field{Key: "metadata_availability", Value: string(rv.MetadataAvailability)})
+	}
+	if rv.EvidenceState != "" && rv.EvidenceState != types.EvidenceComplete {
+		fields = append(fields, toon.Field{Key: "evidence_state", Value: string(rv.EvidenceState)})
+	}
+	if rv.TerminalReason != "" {
+		fields = append(fields, toon.Field{Key: "terminal_reason", Value: rv.TerminalReason})
 	}
 	if rv.PRURL != "" {
 		fields = append(fields, toon.Field{Key: "pr", Value: rv.PRURL})
 	}
 	fields = append(fields, toon.Field{Key: "findings", Value: rv.findingsTally()})
+	if rv.ReviewResolution != nil && rv.ReviewResolution.Exists {
+		fields = append(fields, toon.Field{Key: "review_resolution", Value: toon.NewObject(
+			toon.Field{Key: "status", Value: rv.ReviewResolution.Status},
+			toon.Field{Key: "resolved", Value: rv.ReviewResolution.ResolvedCount},
+			toon.Field{Key: "accepted_without_fix", Value: rv.ReviewResolution.AcceptedCount},
+			toon.Field{Key: "informational", Value: rv.ReviewResolution.InformationalCount},
+			toon.Field{Key: "still_open", Value: rv.ReviewResolution.StillOpenCount},
+			toon.Field{Key: "path", Value: rv.ReviewResolution.Path},
+		)})
+	}
 
 	rows := make([]stepRow, 0, len(rv.Steps))
 	for _, s := range rv.Steps {
