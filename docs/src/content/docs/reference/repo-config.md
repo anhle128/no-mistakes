@@ -19,6 +19,9 @@ ignore_patterns:
   - "*.generated.go"
   - "vendor/**"
 
+pr:
+  base_branch: develop
+
 auto_fix:
   rebase: 3
   review: 3
@@ -107,6 +110,19 @@ Pattern matching rules:
 | `*.generated.go` | No slash - matches by basename |
 | `vendor/**` | Ends with `/**` - matches entire subtree |
 | `some/path/file.go` | Contains a slash - full path glob |
+
+### pr.base_branch
+
+Override the branch used as the pull request target.
+
+| | |
+|---|---|
+| Type | `string` |
+| Default | Empty (uses the repository's detected default branch from `origin`) |
+
+When set, the PR step looks for and creates pull requests from the pushed branch into this branch instead of the detected default branch.
+The PR summary is also generated from the delta against this branch.
+This only changes PR creation/update behavior; the rest of the gate still treats the repository's detected default branch as the default branch.
 
 ### auto_fix
 

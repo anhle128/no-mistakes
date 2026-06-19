@@ -298,6 +298,45 @@ func TestPRStep_CreatesNewPR(t *testing.T) {
 	}
 }
 
+func TestPRStep_UsesConfiguredBaseBranch(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	env, logFile := fakeGH(t, "")
+
+	var prompt string
+	ag := &mockAgent{
+		name: "test",
+		runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
+			prompt = opts.Prompt
+			payload := json.RawMessage(`{"title":"fix: route prs to develop","body":"## What Changed\n\n- create PRs against develop"}`)
+			return &agent.Result{Output: payload}, nil
+		},
+	}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Env = env
+	sctx.Config.PR.BaseBranch = "develop"
+
+	step := &PRStep{}
+	if _, err := step.Execute(sctx); err != nil {
+		t.Fatal(err)
+	}
+
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghLog := string(logData)
+	if !strings.Contains(ghLog, "pr list --head feature --base develop") {
+		t.Fatalf("expected PR lookup to use configured base branch, got:\n%s", ghLog)
+	}
+	if !strings.Contains(ghLog, "pr create --head feature --base develop") {
+		t.Fatalf("expected PR create to use configured base branch, got:\n%s", ghLog)
+	}
+	if !strings.Contains(prompt, "- PR base branch: develop") {
+		t.Fatalf("expected PR prompt to include configured base branch, got:\n%s", prompt)
+	}
+}
+
 func TestPRStepBuildPipelineSectionRefreshesReviewResolutionBeforeSummary(t *testing.T) {
 	t.Parallel()
 	dir, baseSHA, headSHA := setupGitRepo(t)
@@ -1195,7 +1234,7 @@ func TestPRStep_PromptRequiresReleaseTypesForProductImpact(t *testing.T) {
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
 
 	step := &PRStep{}
-	if _, err := step.buildPRContent(sctx, "feature", baseSHA); err != nil {
+	if _, err := step.buildPRContent(sctx, "feature", baseSHA, "main"); err != nil {
 		t.Fatal(err)
 	}
 	if len(ag.calls) != 1 {

@@ -53,6 +53,22 @@ func TestMerge_RepoOverridesAgent(t *testing.T) {
 	}
 }
 
+func TestMerge_RepoPRBaseBranch(t *testing.T) {
+	global := &GlobalConfig{
+		Agent:     types.AgentClaude,
+		CITimeout: 4 * time.Hour,
+		LogLevel:  "info",
+	}
+	repo := &RepoConfig{
+		PR: PRRaw{BaseBranch: " develop "},
+	}
+
+	cfg := Merge(global, repo)
+	if cfg.PR.BaseBranch != "develop" {
+		t.Errorf("pr.base_branch = %q, want develop", cfg.PR.BaseBranch)
+	}
+}
+
 func TestMerge_RepoDoesNotOverrideWhenEmpty(t *testing.T) {
 	global := &GlobalConfig{
 		Agent:     types.AgentRovoDev,

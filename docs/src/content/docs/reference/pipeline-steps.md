@@ -142,6 +142,7 @@ Creates or updates a pull request.
 
 **Skipped when:**
 - The branch is the default branch
+- The branch is the configured PR base branch
 - The upstream host is not GitHub, GitLab, or Bitbucket Cloud (`bitbucket.org`)
 - The provider CLI (`gh` or `glab`) is not installed for GitHub or GitLab
 - The provider CLI is not authenticated for GitHub or GitLab
@@ -150,6 +151,7 @@ Creates or updates a pull request.
 **Behavior:**
 - Checks for an existing PR on the branch
 - If one exists, updates it. If not, creates a new one.
+- Targets `pr.base_branch` from `.no-mistakes.yaml` when set; otherwise targets the repository's detected default branch
 - Uses the provider CLI for GitHub/GitLab and the Bitbucket API for Bitbucket Cloud
 - PR title: agent-generated with user intent when available, in conventional commit format (`type(scope): description` or `type: description`); user-facing product impact should use `feat` or `fix` so release automation can pick it up; when a scope is used, it should be the primary affected real module/package from the changed paths and kept broad rather than file-level
 - PR body includes a `## Intent` section when user intent is available, an agent-authored `## What Changed`, and regenerated `## Risk Assessment`, `## Testing`, and `## Pipeline` sections from recorded step results and rounds; auto-fix results in `## Pipeline` render as an issue -> fix -> verification narrative using captured fix summaries, re-check success text, and any still-open findings

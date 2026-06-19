@@ -50,6 +50,7 @@ type RepoConfig struct {
 	Agent          types.AgentName `yaml:"agent"`
 	Commands       Commands        `yaml:"commands"`
 	IgnorePatterns []string        `yaml:"ignore_patterns"`
+	PR             PRRaw           `yaml:"pr"`
 	AutoFix        AutoFixRaw      `yaml:"auto_fix"`
 	Intent         IntentRaw       `yaml:"intent"`
 	Test           TestRaw         `yaml:"test"`
@@ -60,6 +61,18 @@ type Commands struct {
 	Lint   string `yaml:"lint"`
 	Test   string `yaml:"test"`
 	Format string `yaml:"format"`
+}
+
+// PRRaw is the YAML representation of repo-level PR settings.
+type PRRaw struct {
+	BaseBranch string `yaml:"base_branch"`
+}
+
+// PR holds resolved repo-level PR settings.
+type PR struct {
+	// BaseBranch overrides the detected default branch for PR creation only.
+	// Empty means "use the repository's detected default branch".
+	BaseBranch string
 }
 
 // AutoFixRaw is the YAML representation of auto-fix config.
@@ -96,6 +109,7 @@ type Config struct {
 	LogLevel             string
 	Commands             Commands
 	IgnorePatterns       []string
+	PR                   PR
 	AutoFix              AutoFix
 	Intent               Intent
 	Test                 Test
@@ -579,6 +593,10 @@ func applyTestOverrides(dst *Test, src *TestRaw) {
 	}
 }
 
+func prFromRepo(src PRRaw) PR {
+	return PR{BaseBranch: strings.TrimSpace(src.BaseBranch)}
+}
+
 // autoFixDefaults returns the default auto-fix configuration.
 func autoFixDefaults() AutoFix {
 	return AutoFix{
@@ -635,7 +653,8 @@ func (c *Config) AutoFixLimit(step types.StepName) int {
 }
 
 // Merge combines global and per-repo config. Per-repo agent overrides global
-// when non-empty. Commands and ignore patterns come from repo config only.
+// when non-empty. Commands, ignore patterns, and PR settings come from repo
+// config only.
 func Merge(global *GlobalConfig, repo *RepoConfig) *Config {
 	af := autoFixDefaults()
 	applyAutoFixOverrides(&af, &global.AutoFix)
@@ -659,6 +678,7 @@ func Merge(global *GlobalConfig, repo *RepoConfig) *Config {
 		LogLevel:             global.LogLevel,
 		Commands:             repo.Commands,
 		IgnorePatterns:       repo.IgnorePatterns,
+		PR:                   prFromRepo(repo.PR),
 		AutoFix:              af,
 		Intent:               intent,
 		Test:                 test,

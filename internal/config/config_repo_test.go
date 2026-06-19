@@ -29,6 +29,9 @@ func TestLoadRepo_Defaults(t *testing.T) {
 	if len(cfg.IgnorePatterns) != 0 {
 		t.Errorf("ignore_patterns = %v, want empty", cfg.IgnorePatterns)
 	}
+	if cfg.PR.BaseBranch != "" {
+		t.Errorf("pr.base_branch = %q, want empty", cfg.PR.BaseBranch)
+	}
 }
 
 func TestLoadRepo_FromFile(t *testing.T) {
@@ -42,6 +45,8 @@ commands:
 ignore_patterns:
   - "*.generated.go"
   - "vendor/**"
+pr:
+  base_branch: develop
 `
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
@@ -71,6 +76,9 @@ ignore_patterns:
 	}
 	if cfg.IgnorePatterns[1] != "vendor/**" {
 		t.Errorf("ignore_patterns[1] = %q", cfg.IgnorePatterns[1])
+	}
+	if cfg.PR.BaseBranch != "develop" {
+		t.Errorf("pr.base_branch = %q, want develop", cfg.PR.BaseBranch)
 	}
 }
 

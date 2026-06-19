@@ -1,6 +1,7 @@
 package steps
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -38,12 +39,14 @@ func (s *PRStep) Name() types.StepName { return types.StepPR }
 func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, error) {
 	ctx := sctx.Ctx
 
-	branch := sctx.Run.Branch
-	if strings.HasPrefix(branch, "refs/heads/") {
-		branch = strings.TrimPrefix(branch, "refs/heads/")
-	}
-	if branch == sctx.Repo.DefaultBranch {
+	branch := normalizeBranchName(sctx.Run.Branch)
+	baseBranch := prBaseBranch(sctx)
+	if branch == normalizeBranchName(sctx.Repo.DefaultBranch) {
 		sctx.Log(fmt.Sprintf("skipping PR creation on default branch %s", branch))
+		return &pipeline.StepOutcome{Skipped: true}, nil
+	}
+	if baseBranch != "" && branch == baseBranch {
+		sctx.Log(fmt.Sprintf("skipping PR creation on PR base branch %s", branch))
 		return &pipeline.StepOutcome{Skipped: true}, nil
 	}
 	provider := scm.DetectProvider(sctx.Repo.UpstreamURL)
@@ -57,15 +60,16 @@ func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 		return &pipeline.StepOutcome{Skipped: true}, nil
 	}
 
-	// Resolve the branch base so PR summaries cover the full branch delta.
-	baseSHA := resolveBranchBaseSHA(ctx, sctx.WorkDir, sctx.Run.BaseSHA, sctx.Repo.DefaultBranch)
-	content, err := s.buildPRContent(sctx, branch, baseSHA)
+	// Resolve the PR target base so PR summaries cover the delta reviewers see.
+	fetchPRBaseBranch(ctx, sctx, baseBranch)
+	baseSHA := resolveBranchBaseSHA(ctx, sctx.WorkDir, sctx.Run.BaseSHA, baseBranch)
+	content, err := s.buildPRContent(sctx, branch, baseSHA, baseBranch)
 	if err != nil {
 		return nil, err
 	}
 
 	sctx.Log(fmt.Sprintf("checking for existing pull request on branch %s...", branch))
-	existing, err := host.FindPR(ctx, branch, sctx.Repo.DefaultBranch)
+	existing, err := host.FindPR(ctx, branch, baseBranch)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +90,7 @@ func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 	}
 
 	sctx.Log("creating pull request...")
-	created, err := host.CreatePR(ctx, branch, sctx.Repo.DefaultBranch, scm.PRContent(content))
+	created, err := host.CreatePR(ctx, branch, baseBranch, scm.PRContent(content))
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +102,37 @@ func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 		slog.Warn("failed to persist PR URL", "run", sctx.Run.ID, "url", created.URL, "err", err)
 	}
 	return &pipeline.StepOutcome{PRURL: created.URL}, nil
+}
+
+func normalizeBranchName(branch string) string {
+	return strings.TrimPrefix(strings.TrimSpace(branch), "refs/heads/")
+}
+
+func prBaseBranch(sctx *pipeline.StepContext) string {
+	if sctx != nil && sctx.Config != nil {
+		if base := normalizeBranchName(sctx.Config.PR.BaseBranch); base != "" {
+			return base
+		}
+	}
+	if sctx != nil && sctx.Repo != nil {
+		return normalizeBranchName(sctx.Repo.DefaultBranch)
+	}
+	return ""
+}
+
+func fetchPRBaseBranch(ctx context.Context, sctx *pipeline.StepContext, baseBranch string) {
+	if sctx == nil {
+		return
+	}
+	if strings.TrimSpace(baseBranch) == "" {
+		return
+	}
+	if sctx.Repo != nil && baseBranch == normalizeBranchName(sctx.Repo.DefaultBranch) {
+		return
+	}
+	if err := git.FetchRemoteBranch(ctx, sctx.WorkDir, "origin", baseBranch); err != nil {
+		sctx.LogFile(fmt.Sprintf("warning: could not fetch origin/%s for PR base: %v", baseBranch, err))
+	}
 }
 
 func describePR(pr *scm.PR) string {
@@ -113,7 +148,7 @@ func describePR(pr *scm.PR) string {
 	return ""
 }
 
-func (s *PRStep) buildPRContent(sctx *pipeline.StepContext, branch, baseSHA string) (prContent, error) {
+func (s *PRStep) buildPRContent(sctx *pipeline.StepContext, branch, baseSHA, baseBranch string) (prContent, error) {
 	ctx := sctx.Ctx
 	commitLog, _ := git.Log(ctx, sctx.WorkDir, baseSHA, sctx.Run.HeadSHA)
 	diffStat, _ := git.Run(ctx, sctx.WorkDir, "diff", "--stat", baseSHA+".."+sctx.Run.HeadSHA)
@@ -135,6 +170,7 @@ Context:
 - branch: %s
 - base commit: %s
 - target commit: %s
+- PR base branch: %s
 - default branch: %s
 
 Rules:
@@ -150,7 +186,7 @@ Commit history:
 %s
 
 Diff stat:
-%s%s%s%s`, branch, baseSHA, sctx.Run.HeadSHA, sctx.Repo.DefaultBranch, conventional.ReleaseTypeRule, commitLog, diffStat, pipelineContext, userIntentPromptSection(sctx), executionContextPromptSection())
+%s%s%s%s`, branch, baseSHA, sctx.Run.HeadSHA, baseBranch, sctx.Repo.DefaultBranch, conventional.ReleaseTypeRule, commitLog, diffStat, pipelineContext, userIntentPromptSection(sctx), executionContextPromptSection())
 
 	result, err := sctx.Agent.Run(ctx, agent.RunOpts{
 		Prompt:     prompt,
