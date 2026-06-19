@@ -17,26 +17,21 @@
   the iteration process.
 -->
 
-**Language/Version**: Go 1.25 or NEEDS CLARIFICATION
-**Primary Dependencies**: Cobra CLI, Bubble Tea/Bubbles/Lip Gloss TUI, SQLite, YAML, TOON, Git/provider CLIs as applicable
-**Storage**: SQLite under `NM_HOME`, local bare gate repos, disposable worktrees, logs/evidence directories, or N/A
-**Testing**: `go test -race ./...`, targeted `_test.go`, tagged `internal/e2e` tests for cross-process flows, docs build when docs change
-**Target Platform**: macOS, Linux, Windows CLI/daemon
-**Project Type**: Go CLI/daemon with docs site and generated agent skill
-**Performance Goals**: `git push no-mistakes` remains fast by handing long work to the daemon; TUI/AXI surfaces stay responsive during active runs
-**Constraints**: `origin` remains unmodified; pipeline order is fixed; run work happens in isolated worktrees; approval gates pause for human judgment; transcript and telemetry controls remain explicit
-**Scale/Scope**: Local per-user daemon managing multiple initialized repos and branch-scoped runs
+**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
+**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
+**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
+**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
+**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]  
+**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
+**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
+**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- **Explicit Gate Semantics**: Does the feature preserve the meaning of a passed gate and keep `origin` behavior unchanged?
-- **Isolation and User Control**: Are all intentional writes bounded to the run worktree or configured evidence locations, and do `ask-user`/destructive/credential-gated paths pause for human approval?
-- **Evidence-First Quality**: Are focused tests or reviewer-visible evidence identified before implementation, including `go test -race ./...`, `make lint`, and e2e coverage when gate/daemon/agent/provider boundaries are crossed?
-- **Agent-Agnostic Contracts**: Are structured outputs, transcript-derived intent, AXI/TUI labels, and supported agent behavior kept consistent across backends?
-- **Simplicity and Recovery**: Is the smallest reversible design used, with idempotent init/install/update/daemon flows and actionable recovery errors?
-- **Docs and Generated Artifacts**: Are README/docs/config references and generated skills updated or explicitly marked N/A?
+[Gates determined based on constitution file]
 
 ## Project Structure
 
@@ -61,17 +56,43 @@ specs/[###-feature]/
 -->
 
 ```text
-cmd/no-mistakes/        # CLI entry point
-internal/               # Core packages: agent, cli, daemon, gate, git, ipc, pipeline, tui, etc.
-internal/e2e/           # Tagged end-to-end gate/agent journey tests
-skills/no-mistakes/     # Generated agent skill output
-scripts/                # Install and local helper scripts
-docs/                   # Astro documentation site
-.specify/               # Spec Kit templates, scripts, and memory
+# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
+src/
+├── models/
+├── services/
+├── cli/
+└── lib/
+
+tests/
+├── contract/
+├── integration/
+└── unit/
+
+# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
+backend/
+├── src/
+│   ├── models/
+│   ├── services/
+│   └── api/
+└── tests/
+
+frontend/
+├── src/
+│   ├── components/
+│   ├── pages/
+│   └── services/
+└── tests/
+
+# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
+api/
+└── [same as backend above]
+
+ios/ or android/
+└── [platform-specific structure: feature modules, UI flows, platform tests]
 ```
 
-**Structure Decision**: [Document the specific packages, commands, docs, scripts,
-and tests touched by this feature]
+**Structure Decision**: [Document the selected structure and reference the real
+directories captured above]
 
 ## Complexity Tracking
 

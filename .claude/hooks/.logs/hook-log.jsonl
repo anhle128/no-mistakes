@@ -9,3 +9,11 @@
 {"ts":"2026-06-18T06:49:00.200Z","hook":"descriptive-name","event":"PreToolUse","tool":"Write","target":"","note":"","dur":2,"status":"ok","exit":0,"error":""}
 {"ts":"2026-06-18T06:49:00.247Z","hook":"descriptive-name","event":"PreToolUse","tool":"Write","target":"","note":"","dur":2,"status":"ok","exit":0,"error":""}
 {"ts":"2026-06-18T06:49:00.295Z","hook":"descriptive-name","event":"PreToolUse","tool":"Write","target":"","note":"","dur":2,"status":"ok","exit":0,"error":""}
+{"ts":"2026-06-19T03:20:25.470Z","hook":"session-init","event":"SessionStart","tool":"","target":"","note":"startup","dur":72,"status":"ok","exit":0,"error":""}
+{"ts":"2026-06-19T03:20:25.839Z","hook":"usage-quota-cache-refresh","event":"SessionStart","tool":"","target":"","note":"fetched","dur":453,"status":"ok","exit":0,"error":""}
+{"ts":"2026-06-19T03:21:11.850Z","hook":"usage-quota-cache-refresh","event":"SessionStart","tool":"","target":"","note":"throttled","dur":0,"status":"skip","exit":0,"error":""}
+{"ts":"2026-06-19T03:21:11.892Z","hook":"session-init","event":"SessionStart","tool":"","target":"","note":"startup","dur":39,"status":"ok","exit":0,"error":""}
+{"ts":"2026-06-19T03:23:30.684Z","hook":"session-init","event":"SessionStart","tool":"","target":"","note":"startup","dur":43,"status":"ok","exit":0,"error":""}
+{"ts":"2026-06-19T03:23:31.184Z","hook":"usage-quota-cache-refresh","event":"SessionStart","tool":"","target":"","note":"fetched","dur":551,"status":"ok","exit":0,"error":""}
+{"ts":"2026-06-19T03:25:07.454Z","hook":"session-init","event":"SessionStart","tool":"","target":"","note":"startup","dur":85,"status":"ok","exit":0,"error":""}
+{"ts":"2026-06-19T03:25:07.896Z","hook":"usage-quota-cache-refresh","event":"SessionStart","tool":"","target":"","note":"fetched","dur":532,"status":"ok","exit":0,"error":""}

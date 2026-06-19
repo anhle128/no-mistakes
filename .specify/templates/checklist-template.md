@@ -22,15 +22,15 @@
 
 ## [Category 1]
 
-- [ ] CHK001 Verify the checklist covers explicit `no-mistakes` gate semantics and any impact on normal `origin` behavior
-- [ ] CHK002 Verify intentional writes stay inside the disposable worktree or configured evidence directory
-- [ ] CHK003 Verify human approval paths are covered for `ask-user`, destructive, credential-gated, or production-side-effect decisions
+- [ ] CHK001 First checklist item with clear action
+- [ ] CHK002 Second checklist item
+- [ ] CHK003 Third checklist item
 
 ## [Category 2]
 
-- [ ] CHK004 Verify targeted tests, `go test -race ./...`, `make lint`, and any e2e/docs validation are represented
-- [ ] CHK005 Verify agent-facing contracts, structured outputs, TUI/AXI labels, transcript handling, and generated skill updates are represented
-- [ ] CHK006 Verify recovery, idempotence, and actionable error behavior are represented
+- [ ] CHK004 Another category item
+- [ ] CHK005 Item with specific criteria
+- [ ] CHK006 Final item in this category
 
 ## Notes
 

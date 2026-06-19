@@ -169,6 +169,58 @@ restore_project_config() {
   done
 }
 
+backup_registry_state() {
+  local repo="$1"
+  local backup_dir="$2"
+  local registry="$repo/.specify/extensions/.registry"
+
+  [[ -f "$registry" ]] || return 0
+  make_dir "$backup_dir"
+  copy_file "$registry" "$backup_dir/registry.before.json"
+}
+
+merge_registry_state() {
+  local repo="$1"
+  local backup_dir="$2"
+  local registry="$repo/.specify/extensions/.registry"
+  local previous_registry="$backup_dir/registry.before.json"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '+ merge extension registry %q into %q\n' "$previous_registry" "$registry"
+    return 0
+  fi
+
+  [[ -f "$previous_registry" && -f "$registry" ]] || return 0
+
+  command -v jq >/dev/null 2>&1 || die "jq is required to preserve $registry"
+
+  local merged_registry
+  merged_registry="$(mktemp "${TMPDIR:-/tmp}/speckit-$EXTENSION_ID-registry.XXXXXX")"
+
+  if ! jq -s '
+    .[0] as $old |
+    .[1] as $new |
+    ($old + $new)
+    | .schema_version = ($new.schema_version // $old.schema_version // "1.0")
+    | .extensions = (($old.extensions // {}) + ($new.extensions // {}))
+  ' "$previous_registry" "$registry" > "$merged_registry"; then
+    rm -f "$merged_registry"
+    return 1
+  fi
+
+  mv "$merged_registry" "$registry"
+}
+
+restore_registry_state() {
+  local repo="$1"
+  local backup_dir="$2"
+  local registry="$repo/.specify/extensions/.registry"
+  local previous_registry="$backup_dir/registry.before.json"
+
+  [[ -f "$previous_registry" ]] || return 0
+  copy_file "$previous_registry" "$registry"
+}
+
 ensure_installed_files() {
   local repo="$1"
   local extension_dir="$repo/.specify/extensions/$EXTENSION_ID"
@@ -217,6 +269,8 @@ install_or_update_repo() {
     backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/speckit-$EXTENSION_ID.XXXXXX")"
   fi
 
+  backup_registry_state "$repo" "$backup_dir" || status=1
+
   if extension_is_installed "$repo"; then
     log "Updating $EXTENSION_ID"
     backup_project_config "$extension_dir" "$backup_dir" || status=1
@@ -229,6 +283,10 @@ install_or_update_repo() {
 
   if [[ "$status" -eq 0 ]]; then
     run_in_repo "$repo" specify extension add --dev "$INSTALL_SOURCE" --priority "$PRIORITY" || status=1
+  fi
+
+  if [[ "$status" -eq 0 ]]; then
+    merge_registry_state "$repo" "$backup_dir" || status=1
   fi
 
   if [[ "$status" -eq 0 ]]; then
@@ -247,6 +305,7 @@ install_or_update_repo() {
     if [[ "$status" -eq 0 ]]; then
       rm -rf "$backup_dir"
     else
+      restore_registry_state "$repo" "$backup_dir" || log "FAILED: could not restore extension registry from $backup_dir"
       log "FAILED: backup kept at $backup_dir"
     fi
   fi

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Add or remove Spec Kit consumer repositories here, or pass them as positional args.
-REPOS=()
+# Add or remove Spec Kit consumer repositories here.
+REPOS=(
+  "/Users/dale/Desktop/workspace/OceanLabs/x10.oh.cowork"
+  "/Users/dale/Desktop/workspace/OceanLabs/workflow-engine/no-mistakes"
+)
 
 EXTENSION_ID="red-team"
 PRIORITY="${PRIORITY:-10}"
@@ -18,8 +21,7 @@ usage() {
 Usage:
   ./install-extension.sh [options] [repo ...]
 
-Installs this Spec Kit extension into each repo passed on the command line or
-listed in REPOS.
+Installs this Spec Kit extension into each repo in REPOS.
 If the extension is already installed, it is removed and reinstalled from the
 local source path while preserving project lens/config files.
 
@@ -30,8 +32,7 @@ Options:
   --dry-run         Print actions without changing files.
   -h, --help        Show this help.
 
-No default repos are bundled. Add local paths to REPOS or pass repo paths as
-positional args.
+Default repos are listed at the top of this script.
 EOF
 }
 
@@ -86,7 +87,7 @@ stage_extension_source() {
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     INSTALL_SOURCE="${TMPDIR:-/tmp}/speckit-$EXTENSION_ID-source.DRYRUN/source"
-    printf '+ rsync -a --exclude %q --exclude %q --exclude %q --exclude %q %q/ %q/\n' '.*/' 'AGENTS.md' 'CLAUDE.md' '.claude/' "$source" "$INSTALL_SOURCE"
+    printf '+ rsync -a --exclude %q %q/ %q/\n' '.*/' "$source" "$INSTALL_SOURCE"
     return 0
   fi
 
@@ -95,7 +96,7 @@ stage_extension_source() {
   STAGED_SOURCE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/speckit-$EXTENSION_ID-source.XXXXXX")"
   INSTALL_SOURCE="$STAGED_SOURCE_DIR/source"
   mkdir -p "$INSTALL_SOURCE"
-  rsync -a --exclude='.*/' --exclude='AGENTS.md' --exclude='CLAUDE.md' --exclude='.claude/' "$source"/ "$INSTALL_SOURCE"/
+  rsync -a --exclude='.*/' "$source"/ "$INSTALL_SOURCE"/
 }
 
 cleanup_staged_source() {
@@ -163,6 +164,58 @@ restore_project_config() {
   done
 }
 
+backup_registry_state() {
+  local repo="$1"
+  local backup_dir="$2"
+  local registry="$repo/.specify/extensions/.registry"
+
+  [[ -f "$registry" ]] || return 0
+  make_dir "$backup_dir"
+  copy_file "$registry" "$backup_dir/registry.before.json"
+}
+
+merge_registry_state() {
+  local repo="$1"
+  local backup_dir="$2"
+  local registry="$repo/.specify/extensions/.registry"
+  local previous_registry="$backup_dir/registry.before.json"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '+ merge extension registry %q into %q\n' "$previous_registry" "$registry"
+    return 0
+  fi
+
+  [[ -f "$previous_registry" && -f "$registry" ]] || return 0
+
+  command -v jq >/dev/null 2>&1 || die "jq is required to preserve $registry"
+
+  local merged_registry
+  merged_registry="$(mktemp "$registry.XXXXXX")"
+
+  if ! jq -s '
+    .[0] as $old |
+    .[1] as $new |
+    ($old + $new)
+    | .schema_version = ($new.schema_version // $old.schema_version // "1.0")
+    | .extensions = (($old.extensions // {}) + ($new.extensions // {}))
+  ' "$previous_registry" "$registry" > "$merged_registry"; then
+    rm -f "$merged_registry"
+    return 1
+  fi
+
+  mv "$merged_registry" "$registry"
+}
+
+restore_registry_state() {
+  local repo="$1"
+  local backup_dir="$2"
+  local registry="$repo/.specify/extensions/.registry"
+  local previous_registry="$backup_dir/registry.before.json"
+
+  [[ -f "$previous_registry" ]] || return 0
+  copy_file "$previous_registry" "$registry"
+}
+
 ensure_lens_catalog() {
   local repo="$1"
   local extension_dir="$repo/.specify/extensions/$EXTENSION_ID"
@@ -201,7 +254,13 @@ install_or_update_repo() {
   log ""
   log "==> $repo"
 
-  backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/speckit-$EXTENSION_ID.XXXXXX")" || return 1
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    backup_dir="${TMPDIR:-/tmp}/speckit-$EXTENSION_ID-backup.DRYRUN"
+  else
+    backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/speckit-$EXTENSION_ID.XXXXXX")" || return 1
+  fi
+
+  backup_registry_state "$repo" "$backup_dir" || status=1
 
   if extension_is_installed "$repo"; then
     log "Updating $EXTENSION_ID"
@@ -218,6 +277,10 @@ install_or_update_repo() {
   fi
 
   if [[ "$status" -eq 0 ]]; then
+    merge_registry_state "$repo" "$backup_dir" || status=1
+  fi
+
+  if [[ "$status" -eq 0 ]]; then
     restore_project_config "$backup_dir" "$extension_dir" || status=1
   fi
 
@@ -229,10 +292,13 @@ install_or_update_repo() {
     run_in_repo "$repo" specify extension list || status=1
   fi
 
-  if [[ "$status" -eq 0 && "$DRY_RUN" -ne 1 ]]; then
-    rm -rf "$backup_dir"
-  elif [[ "$DRY_RUN" -ne 1 ]]; then
-    log "FAILED: backup kept at $backup_dir"
+  if [[ "$DRY_RUN" -ne 1 ]]; then
+    if [[ "$status" -eq 0 ]]; then
+      rm -rf "$backup_dir"
+    else
+      restore_registry_state "$repo" "$backup_dir" || log "FAILED: could not restore extension registry from $backup_dir"
+      log "FAILED: backup kept at $backup_dir"
+    fi
   fi
 
   return "$status"
@@ -272,12 +338,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#repos[@]} -eq 0 ]]; then
-  if (( ${#REPOS[@]} > 0 )); then
-    repos=("${REPOS[@]}")
-  fi
-fi
-if [[ ${#repos[@]} -eq 0 ]]; then
-  die "No repo paths supplied. Pass repo paths, use --repo PATH, or add entries to REPOS."
+  repos=("${REPOS[@]}")
 fi
 
 command -v specify >/dev/null 2>&1 || die "specify CLI is not on PATH"
