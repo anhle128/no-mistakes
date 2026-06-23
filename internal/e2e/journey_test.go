@@ -17,6 +17,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/paths"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -178,10 +179,10 @@ func runHappyPath(t *testing.T, agentName string) {
 	// The review step always runs and always calls the agent. Find the
 	// invocation whose prompt contains the review preamble; if missing
 	// the pipeline didn't reach review or routed it elsewhere.
-	assertNoUnexpectedAutofixCommits(t, run, featureHead)
+	assertNoUnexpectedAutofixCommits(t, h, run, featureHead)
 	assertReviewStepInfoOnly(t, run.Steps)
-	assertReviewPrompt(t, h, run, invs)
-	assertDocumentPrompt(t, h, run, invs)
+	assertReviewPrompt(t, h, featureHead, invs)
+	assertDocumentPrompt(t, h, featureHead, invs)
 	assertDocumentStepNoGaps(t, run.Steps)
 	assertNoCommandTestStep(t, run.Steps, invs)
 	if !sawPromptContainingAll(invs, "Detect the linting and formatting tools", "branch: feature/e2e", "only unresolved") {
@@ -1169,7 +1170,7 @@ func assertIgnoredOnlyRun(t *testing.T, h *Harness) {
 	if run.Status != types.RunCompleted {
 		t.Fatalf("ignored-only run did not complete: status=%s error=%v", run.Status, deref(run.Error))
 	}
-	assertNoUnexpectedAutofixCommits(t, run, head)
+	assertNoUnexpectedAutofixCommits(t, h, run, head)
 	step, ok := findStep(run.Steps, types.StepReview)
 	if !ok {
 		t.Fatal("expected review step in ignored-only run")
@@ -1242,7 +1243,7 @@ func assertConfiguredCommandRun(t *testing.T, h *Harness) {
 	if run.Status != types.RunCompleted {
 		t.Fatalf("configured command run did not complete: status=%s error=%v", run.Status, deref(run.Error))
 	}
-	assertNoUnexpectedAutofixCommits(t, run, head)
+	assertNoUnexpectedAutofixCommits(t, h, run, head)
 	testStep, ok := findStep(run.Steps, types.StepTest)
 	if !ok {
 		t.Fatal("expected test step in configured command run")
@@ -1507,8 +1508,18 @@ func assertReviewExistingBranchUsesMergeBaseScope(t *testing.T, h *Harness) {
 	if firstRun.Status != types.RunCompleted {
 		t.Fatalf("first review merge-base run status=%s error=%v", firstRun.Status, deref(firstRun.Error))
 	}
-	if firstRun.HeadSHA != firstHead {
-		t.Fatalf("first review merge-base head = %s, want %s", firstRun.HeadSHA, firstHead)
+	assertNoUnexpectedAutofixCommits(t, h, firstRun, firstHead)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if out, err := h.runGit(ctx, h.WorkDir, "fetch", "origin", branch); err != nil {
+		t.Fatalf("fetch review merge-base branch after first run: %v\n%s", err, out)
+	}
+	if out, err := h.runGit(ctx, h.WorkDir, "checkout", branch); err != nil {
+		t.Fatalf("checkout review merge-base branch after first run: %v\n%s", err, out)
+	}
+	if out, err := h.runGit(ctx, h.WorkDir, "reset", "--hard", firstRun.HeadSHA); err != nil {
+		t.Fatalf("reset review merge-base branch to first run head: %v\n%s", err, out)
 	}
 
 	secondHead := h.CommitChange(branch, "review-merge-base-second.txt", "second review merge-base change\n", "add second review merge-base change")
@@ -1517,9 +1528,7 @@ func assertReviewExistingBranchUsesMergeBaseScope(t *testing.T, h *Harness) {
 	if secondRun.Status != types.RunCompleted {
 		t.Fatalf("second review merge-base run status=%s error=%v", secondRun.Status, deref(secondRun.Error))
 	}
-	if secondRun.HeadSHA != secondHead {
-		t.Fatalf("second review merge-base head = %s, want %s", secondRun.HeadSHA, secondHead)
-	}
+	assertNoUnexpectedAutofixCommits(t, h, secondRun, secondHead)
 
 	prompt, ok := promptContainingAll(h.AgentInvocations(), "Review the code changes", "branch: "+branch, secondHead)
 	if !ok {
@@ -2161,9 +2170,7 @@ func assertRerunCompletedInDir(t *testing.T, h *Harness, dir string, previous *i
 	if run.Branch != previous.Branch {
 		t.Errorf("rerun branch = %q, want %q", run.Branch, previous.Branch)
 	}
-	if run.HeadSHA != previous.HeadSHA {
-		t.Errorf("rerun head = %q, want %q", run.HeadSHA, previous.HeadSHA)
-	}
+	assertNoUnexpectedAutofixCommits(t, h, run, previous.HeadSHA)
 	if run.BaseSHA != previous.BaseSHA {
 		t.Errorf("rerun base = %q, want %q", run.BaseSHA, previous.BaseSHA)
 	}
@@ -2569,7 +2576,7 @@ func assertNewBranchRun(t *testing.T, h *Harness, run *ipc.RunInfo) {
 	}
 }
 
-func assertReviewPrompt(t *testing.T, h *Harness, run *ipc.RunInfo, invs []Invocation) {
+func assertReviewPrompt(t *testing.T, h *Harness, targetHead string, invs []Invocation) {
 	t.Helper()
 	prompt, ok := promptContainingAll(invs, "Review the code changes", "branch: feature/e2e")
 	if !ok {
@@ -2579,7 +2586,7 @@ func assertReviewPrompt(t *testing.T, h *Harness, run *ipc.RunInfo, invs []Invoc
 	for _, want := range []string{
 		"branch: feature/e2e",
 		baseSHA,
-		run.HeadSHA,
+		targetHead,
 		"ignore patterns: *.generated.go, vendor/**",
 		"Do a full review pass before returning.",
 		"Do not stop after the first valid finding.",
@@ -2620,7 +2627,7 @@ func assertReviewStepInfoOnly(t *testing.T, steps []ipc.StepResultInfo) {
 	}
 }
 
-func assertDocumentPrompt(t *testing.T, h *Harness, run *ipc.RunInfo, invs []Invocation) {
+func assertDocumentPrompt(t *testing.T, h *Harness, targetHead string, invs []Invocation) {
 	t.Helper()
 	prompt, ok := promptContainingAll(invs, "Find every documentation gap", "branch: feature/e2e")
 	if !ok {
@@ -2630,7 +2637,7 @@ func assertDocumentPrompt(t *testing.T, h *Harness, run *ipc.RunInfo, invs []Inv
 	for _, want := range []string{
 		"branch: feature/e2e",
 		baseSHA,
-		run.HeadSHA,
+		targetHead,
 		"ignore patterns: *.generated.go, vendor/**",
 		"Be exhaustive.",
 		"fix all of them yourself",
@@ -2660,10 +2667,41 @@ func assertDocumentStepNoGaps(t *testing.T, steps []ipc.StepResultInfo) {
 	}
 }
 
-func assertNoUnexpectedAutofixCommits(t *testing.T, run *ipc.RunInfo, featureHead string) {
+func assertNoUnexpectedAutofixCommits(t *testing.T, h *Harness, run *ipc.RunInfo, featureHead string) {
 	t.Helper()
-	if run.HeadSHA != featureHead {
-		t.Fatalf("run head SHA = %s, want original feature head %s", run.HeadSHA, featureHead)
+	if run.HeadSHA == featureHead {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := h.runGit(ctx, h.UpstreamDir, "merge-base", "--is-ancestor", featureHead, run.HeadSHA); err != nil {
+		t.Fatalf("run head SHA = %s, want descendant of original feature head %s: %v\n%s", run.HeadSHA, featureHead, err, out)
+	}
+	filesRaw, err := h.runGit(ctx, h.UpstreamDir, "diff", "--name-only", featureHead+".."+run.HeadSHA)
+	if err != nil {
+		t.Fatalf("read changed files between %s and %s: %v\n%s", featureHead, run.HeadSHA, err, filesRaw)
+	}
+	wantReport := reviewreport.RepoReportRelativePath(run.Branch, run.ID)
+	for _, file := range strings.Split(strings.TrimSpace(string(filesRaw)), "\n") {
+		if file == "" {
+			continue
+		}
+		if file != wantReport {
+			t.Fatalf("unexpected pipeline-created file %q between %s and %s; only %q is allowed", file, featureHead, run.HeadSHA, wantReport)
+		}
+	}
+	subjectsRaw, err := h.runGit(ctx, h.UpstreamDir, "log", "--format=%s", featureHead+".."+run.HeadSHA)
+	if err != nil {
+		t.Fatalf("read commits between %s and %s: %v\n%s", featureHead, run.HeadSHA, err, subjectsRaw)
+	}
+	for _, subject := range strings.Split(strings.TrimSpace(string(subjectsRaw)), "\n") {
+		if subject == "" {
+			continue
+		}
+		if subject != "no-mistakes: apply agent fixes" && !strings.HasPrefix(subject, "no-mistakes(") {
+			t.Fatalf("unexpected pipeline commit subject %q between %s and %s", subject, featureHead, run.HeadSHA)
+		}
 	}
 }
 

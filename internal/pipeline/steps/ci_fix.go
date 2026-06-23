@@ -10,7 +10,8 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/scm"
 )
 
-// autoFixCI runs the agent to fix CI failures and/or merge conflicts, then commits and pushes.
+// autoFixCI runs the agent to fix CI failures and/or merge conflicts, then
+// commits and pushes to the configured push remote.
 // Returns (true, nil) when changes were committed and pushed, (false, nil)
 // when the agent produced no changes, or (false, err) on failure.
 func (s *CIStep) autoFixCI(sctx *pipeline.StepContext, host scm.Host, pr *scm.PR, failingNames []string, mergeConflict bool) (bool, error) {
@@ -107,7 +108,8 @@ CI logs:
 	return s.commitAndPush(sctx)
 }
 
-// commitAndPush commits any uncommitted changes and force-pushes to upstream.
+// commitAndPush commits any uncommitted changes and force-pushes to the
+// configured push remote.
 // Returns (true, nil) when changes were pushed, (false, nil) when there was
 // nothing to commit, or (false, err) on failure.
 func (s *CIStep) commitAndPush(sctx *pipeline.StepContext) (bool, error) {
@@ -140,8 +142,9 @@ func (s *CIStep) commitAndPush(sctx *pipeline.StepContext) (bool, error) {
 
 func (s *CIStep) pushUpdatedHeadSHA(sctx *pipeline.StepContext, newHeadSHA string) (bool, error) {
 	ref := normalizedBranchRef(sctx.Run.Branch)
+	pushURL := sctx.Repo.PushURL()
 
-	upstreamSHA, lsErr := stepGitLsRemote(sctx, sctx.Repo.UpstreamURL, ref)
+	upstreamSHA, lsErr := stepGitLsRemote(sctx, pushURL, ref)
 	if lsErr != nil {
 		slog.Warn("ls-remote failed, pushing without force-with-lease", "ref", ref, "error", lsErr)
 	} else if upstreamSHA == newHeadSHA {
@@ -154,7 +157,7 @@ func (s *CIStep) pushUpdatedHeadSHA(sctx *pipeline.StepContext, newHeadSHA strin
 		}
 		return false, nil
 	}
-	if err := stepGitPush(sctx, sctx.Repo.UpstreamURL, ref, upstreamSHA, upstreamSHA != ""); err != nil {
+	if err := stepGitPush(sctx, pushURL, ref, upstreamSHA, upstreamSHA != ""); err != nil {
 		if lsErr != nil {
 			return false, fmt.Errorf("push (ls-remote failed: %v): %w", lsErr, err)
 		}

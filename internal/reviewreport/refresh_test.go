@@ -640,6 +640,54 @@ func TestMetadataStatusForRunMarksSourceWatermarkDriftStale(t *testing.T) {
 	}
 }
 
+func TestArchiveReportArtifactPreservesStatusAfterWorktreeCleanup(t *testing.T) {
+	d := openReportTestDB(t)
+	p := paths.WithRoot(t.TempDir())
+	workDir := t.TempDir()
+	repo, _ := d.InsertRepo(workDir, "git@github.com:user/project.git", "main")
+	run, _ := d.InsertRunWithOptions(repo.ID, "feature/archive", "head", "base", db.RunInsertOptions{WorkDir: workDir})
+	step, _ := d.InsertStepResult(run.ID, types.StepReview)
+	findings := `{"findings":[{"id":"review-1","severity":"info","description":"documented tradeoff","action":"no-op"}],"summary":"1 informational"}`
+	if _, err := d.InsertStepRound(step.ID, 1, "initial", &findings, nil, 10); err != nil {
+		t.Fatalf("insert initial round: %v", err)
+	}
+	if err := d.UpdateStepStatus(step.ID, types.StepStatusCompleted); err != nil {
+		t.Fatalf("complete step: %v", err)
+	}
+	if err := d.UpdateRunStatus(run.ID, types.RunCompleted); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+
+	meta, err := Refresh(d, p, run.ID)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	archived, err := ArchiveReportArtifact(d, p, run.ID)
+	if err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	if archived == nil {
+		t.Fatal("expected archived report metadata")
+	}
+	if archived.ReportPath == meta.ReportPath {
+		t.Fatalf("archive path was not updated: %s", archived.ReportPath)
+	}
+	if !strings.HasPrefix(archived.ReportPath, p.ReportsDir()+string(filepath.Separator)) {
+		t.Fatalf("archive path = %q, want under %q", archived.ReportPath, p.ReportsDir())
+	}
+	if err := os.RemoveAll(workDir); err != nil {
+		t.Fatalf("remove execution worktree: %v", err)
+	}
+	if got := MetadataStatusForRun(d, run.ID, archived); got != db.ReviewResolutionStatusFinal {
+		t.Fatalf("MetadataStatusForRun after worktree cleanup = %q, want final", got)
+	}
+	if data, err := os.ReadFile(archived.ReportPath); err != nil {
+		t.Fatalf("read archived report: %v", err)
+	} else if !strings.Contains(string(data), "### review-1") {
+		t.Fatalf("archived report missing review entry:\n%s", string(data))
+	}
+}
+
 func TestRefreshUnparsableReviewEvidenceProducesEvidenceUnavailableReport(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())

@@ -153,6 +153,54 @@ func RepoReportPath(run *db.Run, repo *db.Repo) (string, error) {
 	return filepath.Join(root, rel), nil
 }
 
+// ArchiveReportArtifact copies a report artifact out of an execution checkout
+// that may be cleaned up, then points metadata at the durable local copy. The
+// committed repo-local report path inside the Markdown is intentionally
+// preserved by copying bytes rather than rendering a different report.
+func ArchiveReportArtifact(database *db.DB, p *paths.Paths, runID string) (*db.ReviewResolutionReport, error) {
+	if database == nil || p == nil || strings.TrimSpace(runID) == "" {
+		return nil, fmt.Errorf("archive review resolution report: missing database, paths, or run ID")
+	}
+	report, err := database.GetReviewResolutionReport(runID)
+	if err != nil {
+		return nil, err
+	}
+	if report == nil || strings.TrimSpace(report.ReportPath) == "" {
+		return report, nil
+	}
+	data, err := os.ReadFile(report.ReportPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return report, nil
+		}
+		return nil, fmt.Errorf("read review resolution report for archive: %w", err)
+	}
+	runSegment := sanitizeReportPathSegment(runID)
+	if runSegment == "" {
+		runSegment = "run"
+	}
+	archivePath := filepath.Join(p.ReportsDir(), runSegment, "review-resolution.md")
+	if filepath.Clean(archivePath) == filepath.Clean(report.ReportPath) {
+		return report, nil
+	}
+	tmpPath, err := writeReportTemp(archivePath, data)
+	if err != nil {
+		return nil, fmt.Errorf("write archived review resolution report: %w", err)
+	}
+	defer os.Remove(tmpPath)
+	if err := promoteReportTemp(tmpPath, archivePath); err != nil {
+		return nil, fmt.Errorf("promote archived review resolution report: %w", err)
+	}
+	tmpPath = ""
+
+	archived := *report
+	archived.ReportPath = archivePath
+	if err := database.UpsertReviewResolutionReport(archived); err != nil {
+		return nil, fmt.Errorf("persist archived review resolution report path: %w", err)
+	}
+	return database.GetReviewResolutionReport(runID)
+}
+
 // ReviewResolutionBranchSlug turns a branch into a safe relative branch path.
 // Git branch separators stay as nested directories, matching the grill-me
 // evidence-path decision while still dropping traversal-like segments.

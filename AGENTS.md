@@ -63,6 +63,111 @@ Keep runtime marker contracts stable and non-destructive when overlays are appli
 - Keep diffs small, reviewable, and reversible.
 - Verify with lint, typecheck, tests, and static analysis after changes; final reports include changed files, simplifications, and remaining risks.
 
+## Repository instructions
+
+This repository is a Go CLI app named `no-mistakes`. The binary entrypoint is
+`cmd/no-mistakes`, and most implementation code lives under `internal/`.
+
+**Primary Commands**
+
+- Build with release metadata: `make build`
+- Plain build: `go build -o ./bin/no-mistakes ./cmd/no-mistakes`
+- Install locally: `make install`
+- Cross-compile archives: `make dist`
+- Run unit/integration tests: `make test`
+- Run unit/integration tests directly: `go test -race ./...`
+- Run end-to-end tests: `make e2e`
+- Re-record end-to-end fixtures: `make e2e-record`
+- Regenerate the committed agent skill: `make skill`
+- Run skill drift check and vet: `make lint`
+- Run vet directly: `go vet ./...`
+- Format all Go files: `make fmt`
+- Format directly: `gofmt -w .`
+- Check formatting only: `gofmt -l .`
+- Clean build output: `make clean`
+
+**Single-Test Commands**
+
+- Run one package: `go test ./internal/cli`
+- Run one package with race detector: `go test -race ./internal/cli`
+- Run one top-level test: `go test ./internal/update -run '^TestCompareVersions$'`
+- Run a subset by regex: `go test ./internal/tui -run 'TestModel_'`
+- Re-run without test cache: `go test ./internal/cli -run '^TestDoctorBasic$' -count=1`
+
+**Project Layout**
+
+- `cmd/no-mistakes`: process entrypoint
+- `internal/cli`: cobra commands and CLI wiring
+- `internal/daemon`: background daemon and run management
+- `internal/pipeline` and `internal/pipeline/steps`: orchestration plus review/test/lint/push/PR/CI steps
+- `internal/agent`: Claude, Codex, Rovo Dev, OpenCode, Pi, and ACP/acpx integrations
+- `internal/git`, `internal/ipc`, `internal/config`, `internal/db`, `internal/paths`, `internal/types`: shared infrastructure
+- `internal/tui`: terminal UI
+
+**Fork Routing**
+
+- `repos.upstream_url` is the parent repository used for PR base routing.
+- `repos.fork_url` is an optional GitHub fork push target.
+- `no-mistakes init --fork-url <url>` expects `origin` to point at the GitHub parent repository and `<url>` to point at the contributor fork.
+- Plain `no-mistakes init` preserves an existing fork URL on idempotent refresh.
+- Push code must use `Repo.PushURL()` so configured forks receive branch updates.
+- GitHub PR code must keep `--repo` pointed at the parent and use `--head <fork_owner>:<branch>` when `fork_url` is set.
+- GitHub existing-PR lookup must not pass `<owner>:<branch>` to `gh pr list --head`; list by the bare branch and filter the returned head owner fields.
+- GitLab and Bitbucket fork MR/PR routing is intentionally out of scope until implemented end to end.
+- If a legacy or manually edited row has `fork_url` for GitLab or Bitbucket, PR creation must skip instead of opening a self PR.
+
+**Documentation**
+
+- Keep `README.md` concise and high-level. The bar needs to be extremely high for what has to show up there.
+- Do not put technical details or deep reference material in `README.md`.
+- Most documentation should live in `docs/` which is the published docs site.
+
+**Context, Concurrency, and Processes**
+
+- Thread `context.Context` through long-running, subprocess, and networked work.
+- Prefer `exec.CommandContext` for subprocesses.
+- Route every long-lived subprocess spawned on behalf of a cancellable step/agent invocation through `shellenv.ConfigureShellCommand(cmd)` after building the `*exec.Cmd`. It puts the child in its own process group and installs `cmd.Cancel` to kill the whole tree on context cancellation.
+- Use derived contexts and timeouts for cleanup and HTTP calls.
+- Use `context.Background()` mainly at top-level boundaries, background tasks, or in tests.
+- Protect shared mutable state with `sync.Mutex`, `sync.RWMutex`, `sync.Map`, or `atomic` where appropriate.
+- Be explicit about ownership and cleanup of goroutines, worktrees, temp dirs, and channels.
+
+**Filesystem and Paths**
+
+- Use `filepath.Join` and related helpers.
+- Respect `NM_HOME` when working with app state.
+- Tests should isolate filesystem state with `t.TempDir()` and `t.Setenv("NM_HOME", ...)`.
+- Existing code typically uses `0o755` for directories and `0o644` for files such as logs.
+- On macOS, remember that path comparisons may need symlink resolution like `/var` vs `/private/var`.
+
+**Testing Conventions**
+
+- Tests live next to the code in `*_test.go` files.
+- Use the standard `testing` package.
+- Table-driven tests are common and use `tests := []struct { ... }` plus `t.Run`.
+- Use `t.Helper()` in helpers.
+- Use `t.TempDir()` for isolated filesystem state.
+- Use `t.Setenv()` for environment-dependent behavior.
+- Prefer creating real git repos in temp directories instead of relying on heavy mocking.
+- CLI tests often capture output and assert with `strings.Contains`.
+- Prefer e2e tests, new or existing, for behavior that crosses a process or I/O boundary: CLI flags, config loading, git operations, agent spawning, daemon/process coordination, stdout/stderr, and recorded fixtures.
+- Unit-test pure helpers and tightly scoped package behavior where speed and failure localization are worth more than full-product realism.
+- Prefer targeted package tests while iterating, then finish with `go test -race ./...` and `make e2e` when your change affects those process or I/O boundaries.
+- The e2e suite lives behind the `e2e` build tag, so it is excluded from `go test ./...` and runs separately in CI via `make e2e`.
+
+**Repo Config Trust Boundary**
+
+- The daemon runs `commands.*` from `.no-mistakes.yaml` verbatim via `sh -c`, and `agent` selects which process launches with the maintainer's credentials. To prevent supply-chain RCE, the code-executing selection fields (`commands.{test,lint,format}` and `agent`) are loaded from the trusted default branch, never from the pushed SHA.
+- `startRun` fetches the default branch, resolves it to an exact commit SHA, and `loadTrustedRepoConfig` reads `.no-mistakes.yaml` at that pinned SHA. On fetch or resolve failure, trusted config is nil and `EffectiveRepoConfig` forces empty `commands`/`agent`.
+- Non-executing fields (`ignore_patterns`, `auto_fix`, `intent`, `test`) are still read from the pushed branch.
+- `allow_repo_commands` is per-repo and read from the trusted default-branch copy of `.no-mistakes.yaml`; a contributor cannot self-enable it from a pushed branch.
+- When changing this logic, keep `commands`/`agent` locked to the default branch and update `TestRepoConfigCommandsFromDefaultBranch`, including the `pushed_branch_cannot_self_enable` subtest.
+
+**When Making Changes**
+
+- Whenever you must bring in new dependencies, check latest documentation and discuss with the user.
+- Always use test-driven development for bug fixes and feature development.
+
 <lore_commit_protocol>
 ## Lore Commit Protocol
 

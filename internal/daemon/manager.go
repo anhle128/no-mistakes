@@ -20,6 +20,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline/steps"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/telemetry"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -139,6 +140,44 @@ func repoIDFromGatePath(gatePath string) (string, error) {
 // "refs/heads/main" → "main", "main" → "main"
 func branchFromRef(ref string) string {
 	return strings.TrimPrefix(ref, "refs/heads/")
+}
+
+// loadTrustedRepoConfig reads .no-mistakes.yaml from the trusted
+// default-branch commit (trustedSHA — the exact SHA startRun just fetched and
+// resolved) in the worktree and parses it. Reading at a pinned SHA, rather
+// than the origin/<defaultBranch> remote-tracking ref, closes the stale-ref
+// hole: the gate worktree shares refs with the bare repo, so without a fresh
+// fetch + resolve the ref could point at a commit a previous run left behind.
+//
+// trustedSHA is empty when the default branch is unknown, the fetch failed,
+// or the ref did not resolve — every one of those failure modes returns nil
+// here so the caller (EffectiveRepoConfig) fails closed: the pushed branch's
+// commands and agent are dropped and the run proceeds on built-in defaults.
+// None of these are fatal, since the pushed-branch copy is still read for
+// non-executing fields.
+func loadTrustedRepoConfig(ctx context.Context, wtDir, trustedSHA, runID string) *config.RepoConfig {
+	if trustedSHA == "" {
+		// No trusted SHA means no freshly-fetched default-branch commit to
+		// read from. Return nil so EffectiveRepoConfig forces empty
+		// commands/agent — the secure default — instead of falling back to a
+		// potentially stale origin/<defaultBranch> ref.
+		return nil
+	}
+	content, err := git.ShowFile(ctx, wtDir, trustedSHA, ".no-mistakes.yaml")
+	if err != nil {
+		// Path absent on the default branch is the common "repo has no
+		// trusted commands" case; log at debug so it isn't noisy. Other
+		// errors are surfaced at warn so a genuinely broken read isn't
+		// silent. Either way trusted is nil → fail closed.
+		slog.Debug("trusted repo config: not present on default branch", "run_id", runID, "sha", trustedSHA, "error", err)
+		return nil
+	}
+	trusted, err := config.LoadRepoFromBytes([]byte(content))
+	if err != nil {
+		slog.Warn("trusted repo config: parse failed; commands/agent from pushed branch will be disabled", "run_id", runID, "sha", trustedSHA, "error", err)
+		return nil
+	}
+	return trusted
 }
 
 // HandlePushReceived processes a push notification from the post-receive hook.
@@ -553,16 +592,31 @@ func (m *RunManager) startRunWithOptions(ctx context.Context, repo *db.Repo, bra
 			trackStartFailure("configure_worktree_identity")
 			return "", false, fmt.Errorf("configure worktree git identity: %w", err)
 		}
-		if repo.DefaultBranch != "" {
-			if err := git.FetchRemoteBranch(ctx, workDir, "origin", repo.DefaultBranch); err != nil {
-				slog.Warn("failed to fetch default branch into worktree", "run_id", run.ID, "branch", repo.DefaultBranch, "error", err)
-			}
-		}
 	} else if strings.TrimSpace(workDir) == "" {
 		m.db.UpdateRunError(run.ID, "current worktree mode requires work_dir")
 		m.db.UpdateRunTerminalReason(run.ID, types.RunTerminalReasonSetupFailed, types.EvidenceIncomplete)
 		trackStartFailure("missing_current_workdir")
 		return "", false, fmt.Errorf("current worktree mode requires work_dir")
+	}
+
+	// Fetch the trusted default branch and resolve it to an exact commit SHA
+	// before any trusted config read. Reading at this pinned SHA (rather than a
+	// remote-tracking ref name) makes fetch/resolve failures fail closed:
+	// trustedSHA stays empty, loadTrustedRepoConfig returns nil, and
+	// EffectiveRepoConfig drops commands/agent from the pushed branch.
+	trustedRemote := "origin"
+	if !managedWorktree {
+		trustedRemote = currentModeRemoteName(ctx, workDir, repo.UpstreamURL)
+	}
+	var trustedSHA string
+	if repo.DefaultBranch != "" {
+		if err := git.FetchRemoteBranch(ctx, workDir, trustedRemote, repo.DefaultBranch); err != nil {
+			slog.Warn("failed to fetch default branch; trusted config disabled (commands/agent from pushed branch will be dropped)", "run_id", run.ID, "remote", trustedRemote, "branch", repo.DefaultBranch, "error", err)
+		} else if sha, err := git.ResolveRef(ctx, workDir, "refs/remotes/"+trustedRemote+"/"+repo.DefaultBranch); err != nil {
+			slog.Warn("failed to resolve fetched default-branch ref; trusted config disabled", "run_id", run.ID, "remote", trustedRemote, "branch", repo.DefaultBranch, "error", err)
+		} else {
+			trustedSHA = sha
+		}
 	}
 
 	// Track whether the background goroutine takes ownership of worktree cleanup.
@@ -590,7 +644,32 @@ func (m *RunManager) startRunWithOptions(ctx context.Context, repo *db.Repo, bra
 		trackStartFailure("load_repo_config")
 		return "", false, fmt.Errorf("load repo config: %w", err)
 	}
-	cfg := config.Merge(globalCfg, repoCfg)
+	// SECURITY: load the code-executing selection fields (commands.* and
+	// agent) from the trusted default-branch copy of .no-mistakes.yaml rather
+	// than the pushed SHA. The worktree is checked out at headSHA (the
+	// contributor's branch), so reading repoCfg above would honor a
+	// contributor's commands/agent and let any pushed SHA run arbitrary shell
+	// (sh -c) or pick the launched agent (incl. acp: targets) on the daemon
+	// host with the maintainer's env (GH_TOKEN, SSH agent, ...).
+	// EffectiveRepoConfig replaces commands + agent with the trusted
+	// default-branch values unless the maintainer has explicitly opted in.
+	//
+	// allow_repo_commands is itself read ONLY from the trusted copy: a
+	// contributor cannot self-enable it from the pushed branch. With no
+	// trusted copy (fetch failed, no default branch, or no file on it) the
+	// opt-in is false and commands/agent are forced empty — fail closed.
+	trustedRepoCfg := loadTrustedRepoConfig(ctx, workDir, trustedSHA, run.ID)
+	allowRepoCommands := trustedRepoCfg != nil && trustedRepoCfg.AllowRepoCommands
+	effectiveRepoCfg := config.EffectiveRepoConfig(repoCfg, trustedRepoCfg, allowRepoCommands)
+	if allowRepoCommands {
+		slog.Warn("allow_repo_commands is enabled on the default branch: honoring commands/agent from pushed branch", "run_id", run.ID, "branch", branch)
+	} else if repoCfg.Commands != effectiveRepoCfg.Commands || repoCfg.Agent != effectiveRepoCfg.Agent {
+		// Surface the silent override so a maintainer who shipped a commands.*
+		// or agent change on a feature branch understands why it did not run.
+		// This is not an error: it is the secure default in action.
+		slog.Info("repo commands/agent loaded from default branch, not pushed branch", "run_id", run.ID, "branch", branch, "default_branch", repo.DefaultBranch)
+	}
+	cfg := config.Merge(globalCfg, effectiveRepoCfg)
 
 	// Create agent. In demo mode, skip resolution and use a no-op agent.
 	var ag agent.Agent
@@ -680,6 +759,11 @@ func (m *RunManager) startRunWithOptions(ctx context.Context, repo *db.Repo, bra
 			}
 			cancel(nil)
 			ag.Close()
+			if managedWorktree {
+				if _, archiveErr := reviewreport.ArchiveReportArtifact(m.db, m.paths, run.ID); archiveErr != nil {
+					slog.Warn("failed to archive review resolution report before worktree cleanup", "run_id", run.ID, "error", archiveErr)
+				}
+			}
 			// Close subscriber channels for this run.
 			m.closeSubscribers(run.ID)
 			// Clean up only no-mistakes-managed worktrees. Current-worktree

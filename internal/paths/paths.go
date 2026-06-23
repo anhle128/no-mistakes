@@ -48,6 +48,8 @@ func (p *Paths) WorktreeDir(repoID, runID string) string {
 	return filepath.Join(p.root, "worktrees", repoID, runID)
 }
 
+func (p *Paths) ReportsDir() string { return filepath.Join(p.root, "reports") }
+
 func (p *Paths) LogsDir() string { return filepath.Join(p.root, "logs") }
 func (p *Paths) RunLogDir(runID string) string {
 	return filepath.Join(p.root, "logs", runID)
@@ -66,6 +68,7 @@ func (p *Paths) EnsureDirs() error {
 		p.root,
 		p.ReposDir(),
 		p.WorktreesDir(),
+		p.ReportsDir(),
 		p.LogsDir(),
 		p.ServerPIDsDir(),
 	}
