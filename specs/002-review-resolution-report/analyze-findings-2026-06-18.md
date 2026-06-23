@@ -209,3 +209,17 @@ apply:
       - U1:specs/002-review-resolution-report/plan.md
       - V3:specs/002-review-resolution-report/tasks.md
 ```
+
+## Correction Note - 2026-06-21
+
+The V1 analysis and its downstream task edits treated an invalid `superseded`
+header in `plans/grill-me/review-resolution-report.md` as authoritative. That
+was wrong. The binding source is the full `## Decisions` section in the
+grill-me file.
+
+Any statement in this analysis that recommends
+`$NM_HOME/reports/<runID>/review-resolution.md`, rejects repo-local
+`no-mistakes/<branch-slug>/review-resolution.md`, rejects exact force-add
+staging, or removes PR evidence links is superseded by this correction. This
+file remains historical audit context only; current specs and implementation
+must carry forward the repo-local committed report contract.

@@ -174,6 +174,16 @@ func boolToInt(v bool) int {
 	return 0
 }
 
+// UpdateRunWorkDir records the checkout where a run is executing. Older run
+// records may not have this populated, but repo-local artifacts need it.
+func (d *DB) UpdateRunWorkDir(id, workDir string) error {
+	_, err := d.sql.Exec(`UPDATE runs SET work_dir = ?, updated_at = ? WHERE id = ?`, workDir, now(), id)
+	if err != nil {
+		return fmt.Errorf("update run work dir: %w", err)
+	}
+	return nil
+}
+
 // GetRun returns a run by ID.
 func (d *DB) GetRun(id string) (*Run, error) {
 	r := &Run{}

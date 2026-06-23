@@ -120,7 +120,7 @@ _resolve_from_feature_json() {
 PRD_FILE="${RALPH_PRD_FILE:-$(_resolve_from_feature_json ralph_prd_file || echo "$SCRIPT_DIR/prd.json")}"
 PROGRESS_FILE="${RALPH_PROGRESS_FILE:-$(_resolve_from_feature_json ralph_progress_file || echo "$SCRIPT_DIR/progress.txt")}"
 
-# Export so the spawned tool (Claude / amp) and CLAUDE.md instructions see them.
+# Export so the spawned tool (Claude / amp) and AGENT.md instructions see them.
 export RALPH_PRD_FILE="$PRD_FILE"
 export RALPH_PROGRESS_FILE="$PROGRESS_FILE"
 
@@ -243,7 +243,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     "$@" --dangerously-skip-permissions --print --verbose \
         --model "$MODEL" \
         --output-format stream-json --input-format text \
-        < "$SCRIPT_DIR/CLAUDE.md" \
+        < "$SCRIPT_DIR/AGENT.md" \
       | tee "$iter_json" \
       | jq -r --unbuffered "$_claude_stream_formatter" || true
     jq -sr '[.[]? | select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text] | join("\n")' \
@@ -313,7 +313,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
         --dangerously-bypass-approvals-and-sandbox \
         --skip-git-repo-check \
         - \
-        < "$SCRIPT_DIR/CLAUDE.md" \
+        < "$SCRIPT_DIR/AGENT.md" \
       | tee "$iter_json" \
       | jq -r --unbuffered "$_codex_stream_formatter" || true
     jq -sr '[.[]? | select(.type=="item.completed") | .item // {} | select(.type=="agent_message") | .text // ""] | join("\n")' \
@@ -322,7 +322,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   }
 
   if [[ "$TOOL" == "amp" ]]; then
-    amp --dangerously-allow-all < "$SCRIPT_DIR/prompt.md" 2>&1 | tee "$ITER_LOG" || true
+    amp --dangerously-allow-all < "$SCRIPT_DIR/AGENT.md" 2>&1 | tee "$ITER_LOG" || true
   elif [[ "$TOOL" == "claude" ]]; then
     _run_claude_stream claude
   elif [[ "$TOOL" == "codex" ]]; then

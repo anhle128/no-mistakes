@@ -36,13 +36,13 @@
 
 **Rejected**: Put classification directly in the executor. That would couple lifecycle orchestration to report rendering and make PR/UI drift more likely.
 
-### Keep report artifact local under `$NM_HOME`
+### Keep report artifact repo-local and committed
 
-**Decision**: Write Markdown to `$NM_HOME/reports/<runID>/review-resolution.md`.
+**Decision**: Write Markdown to `no-mistakes/<branch-slug>/review-resolution.md` inside the run checkout, using the grill-me branch safety model.
 
-**Rationale**: This matches the reconciled spec direction and keeps private local evidence out of the target repository and public PR body.
+**Rationale**: The grill-me `## Decisions` section defines the report as PR evidence, not local daemon state. A committed repo-local artifact lets reviewers inspect the full issue-to-resolution narrative from the branch while SQLite remains the compact metadata source for local surfaces.
 
-**Rejected**: Repo-local `no-mistakes/<branch-slug>/review-resolution.md`. The spec explicitly rejects staging, force-adding, or committing local reports.
+**Rejected**: `$NM_HOME/reports/<runID>/review-resolution.md` as the canonical artifact. It cannot be committed or linked from the PR and was introduced by an invalid superseded interpretation.
 
 ### Persist compact metadata separately
 
@@ -78,11 +78,11 @@
 
 ### Surface metadata with privacy boundaries
 
-**Decision**: AXI/TUI may show local report path; PR summaries only show compact status/counts.
+**Decision**: AXI/TUI may show the repo-local report path; PR summaries show compact status/counts plus the repo-relative report path and must not show absolute local paths.
 
-**Rationale**: AXI/TUI are local surfaces; PR body may be public and must not expose local filesystem details, report excerpts, or fake blob links.
+**Rationale**: AXI/TUI are local surfaces; PR body may be public and must not expose checkout-specific filesystem details or report excerpts. The repo-relative path is valid PR evidence once the push step force-adds the exact report artifact.
 
-**Rejected**: Link to local report in PR body. `$NM_HOME` artifacts are not public repository files.
+**Rejected**: Link to absolute local report paths in PR body. Checkout paths are private machine details and break for reviewers.
 
 ### Fail required write failures
 
@@ -96,5 +96,5 @@
 
 - DB migrations need careful additive tests against older schemas.
 - Executor hooks need to distinguish clean Review from Review-with-findings at several lifecycle points.
-- Report refresh must be atomic across Markdown and metadata from the perspective of readers.
+- Report refresh must be atomic across repo-local Markdown and metadata from the perspective of readers.
 - Sanitization needs unit tests for Markdown controls, raw diff/log/code blocks, transcript-like content, secret-like values, and oversized fields.

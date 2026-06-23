@@ -5,10 +5,10 @@
 Path:
 
 ```text
-$NM_HOME/reports/<runID>/review-resolution.md
+no-mistakes/<branch-slug>/review-resolution.md
 ```
 
-The file is local-only evidence. It must not be staged, committed, force-added, or linked as a public blob.
+The file is repo-local PR evidence. The push step must stage or force-add exactly this current-run artifact when it exists, even if `no-mistakes/` is ignored, and must not stage unrelated `no-mistakes/` files.
 
 Required top-level shape:
 
@@ -54,7 +54,7 @@ Run Context fields:
 - First generated timestamp
 - Last refreshed timestamp
 - Finalized timestamp, when applicable
-- Local report path
+- Repo-local report path
 
 Per-issue required fields:
 
@@ -100,7 +100,7 @@ JSON-equivalent shape:
 ```json
 {
   "exists": true,
-  "path": "/home/user/.no-mistakes/reports/<runID>/review-resolution.md",
+  "path": "/home/user/project/no-mistakes/feature/review-resolution.md",
   "status": "in_progress",
   "resolved_count": 1,
   "accepted_count": 1,
@@ -125,9 +125,9 @@ Allowed statuses:
 
 Surface rules:
 
-- AXI/TUI: may show `status`, counts, and local `path`.
-- PR body: may show `status` and counts only.
-- PR body: must not show local path, report excerpt, `$NM_HOME`, or generated blob link.
+- AXI/TUI: may show `status`, counts, and repo-local `path`.
+- PR body: may show `status`, counts, and the repo-relative `no-mistakes/<branch-slug>/review-resolution.md` path.
+- PR body: must not show absolute local paths, report excerpts, or private filesystem details.
 - Consumers must validate local Markdown content hash and source watermark before surfacing confident counts; mismatches render `stale`.
 - Any nonzero `still_open_count`, `degraded`, `incomplete`, `stale`, or `evidence_unavailable` must use non-success wording.
 
@@ -172,16 +172,14 @@ Validation rules:
 When report metadata exists, the generated PR `## Pipeline` section may include one compact line such as:
 
 ```markdown
-- Review resolution: final; 1 resolved, 1 accepted without fix, 0 informational, 0 still open.
+- Review resolution: final; 1 resolved, 1 accepted without fix, 0 informational, 0 still open. Report: `no-mistakes/feature/review-resolution.md`.
 ```
 
 When no report metadata exists, omit review-resolution status.
 
 Forbidden in PR body:
 
-- `$NM_HOME`
 - absolute local paths
-- `review-resolution.md` local path
 - report excerpts
 - raw finding descriptions beyond existing pipeline summary behavior
-- GitHub blob links to a local-only report
+- GitHub blob links to absolute local paths or uncommitted reports

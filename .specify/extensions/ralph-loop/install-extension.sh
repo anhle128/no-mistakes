@@ -6,8 +6,9 @@ set -Eeuo pipefail
 # that staged copy with `specify extension add --dev`.
 
 DEFAULT_REPOS=(
-  "/Users/dale/Desktop/workspace/OceanLabs/x10.oh.cowork",
-  /Users/dale/Desktop/workspace/OceanLabs/workflow-engine/no-mistakes
+  "/Users/dale/Desktop/workspace/OceanLabs/x10.oh.cowork"
+  "/Users/dale/Desktop/workspace/OceanLabs/workflow-engine/no-mistakes"
+  /Users/dale/Desktop/workspace/OceanLabs/workflow-engine/Archon
 )
 
 EXTENSION_ID="ralph-loop"
@@ -22,7 +23,7 @@ EXTENSION_SOURCE="$SCRIPT_DIR"
 usage() {
   cat <<EOF
 Usage:
-  ./build-extension.sh [options] [repo ...]
+  ./install-extension.sh [options] [repo ...]
 
 Stages this extension and installs or updates it in Spec Kit project(s).
 If no repo is supplied, the default target is:
@@ -162,11 +163,9 @@ restore_project_config() {
   [[ -d "$backup_dir" ]] || return 0
   make_dir "$extension_dir"
 
-  local file
-  for file in "$backup_dir"/* "$backup_dir"/.[!.]*; do
-    [[ -f "$file" ]] || continue
-    copy_file "$file" "$extension_dir/$(basename "$file")"
-  done
+  copy_optional_file "$backup_dir/ralph-config.yml" "$extension_dir/ralph-config.yml"
+  copy_optional_file "$backup_dir/ralph-config.local.yml" "$extension_dir/ralph-config.local.yml"
+  copy_optional_file "$backup_dir/.consent" "$extension_dir/.consent"
 }
 
 backup_registry_state() {

@@ -164,7 +164,7 @@ func TestWriteRunObjectIncludesReviewResolution(t *testing.T) {
 		HeadSHA: "abcdef1234567890",
 		ReviewResolution: &ipc.ReviewResolutionReportInfo{
 			Exists:             true,
-			Path:               "/tmp/nm/reports/run-1/review-resolution.md",
+			Path:               "/work/project/no-mistakes/feature/x/review-resolution.md",
 			Status:             "final",
 			ResolvedCount:      1,
 			AcceptedCount:      2,
@@ -179,7 +179,7 @@ func TestWriteRunObjectIncludesReviewResolution(t *testing.T) {
 		"status: final",
 		"resolved: 1",
 		"accepted_without_fix: 2",
-		"path: /tmp/nm/reports/run-1/review-resolution.md",
+		"path: /work/project/no-mistakes/feature/x/review-resolution.md",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("run object missing %q in:\n%s", want, out)

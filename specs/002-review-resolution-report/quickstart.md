@@ -2,11 +2,11 @@
 
 ## Feature Goal
 
-When a Review step records findings, no-mistakes creates a durable local Markdown report plus compact SQLite metadata that explains each finding outcome: resolved, accepted without fix, informational, or still open.
+When a Review step records findings, no-mistakes creates a durable repo-local Markdown report plus compact SQLite metadata that explains each finding outcome: resolved, accepted without fix, informational, or still open.
 
 ## Developer Flow
 
-1. Implement DB/path foundation.
+1. Implement DB/repo-local path foundation.
 
 ```sh
 go test ./internal/db ./internal/paths
@@ -50,12 +50,12 @@ Use a temporary `NM_HOME` and a fake-agent or fixture-driven Review run.
 
 Expected behavior for a run with two Review findings, one fixed and one explicitly approved:
 
-- `$NM_HOME/reports/<runID>/review-resolution.md` exists.
+- `no-mistakes/<branch-slug>/review-resolution.md` exists in the run checkout.
 - SQLite has one `review_resolution_reports` row for the run.
 - Markdown has exactly one entry per normalized finding ID.
 - Counts agree across Markdown, metadata, AXI/TUI output, and PR summary.
-- AXI/TUI show local path and compact counts.
-- PR body shows compact counts/status only and does not include the local report path.
+- AXI/TUI show repo-local path and compact counts.
+- PR body shows compact counts/status plus the repo-relative report path and does not include absolute checkout paths.
 
 Expected behavior for a clean Review run:
 

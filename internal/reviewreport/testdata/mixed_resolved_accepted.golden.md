@@ -14,7 +14,7 @@ Report Format Version: 1
 - First generated timestamp: 2023-11-14T22:13:20Z
 - Last refreshed timestamp: 2023-11-14T22:14:20Z
 - Finalized timestamp: 2023-11-14T22:15:20Z
-- Local report path: /tmp/nm/reports/run-123/review-resolution.md
+- Repo report path: /repo/project/no-mistakes/feature/review-report/review-resolution.md
 
 ## Counts
 

@@ -13,7 +13,7 @@ import (
 func TestClassifierRepeatedFindingIDUpdatesSingleEntry(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 
@@ -122,7 +122,7 @@ func TestClassifierStatusForIncompleteRunStates(t *testing.T) {
 func TestClassifierFollowupStillReportingSelectedIDKeepsFindingOpen(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 

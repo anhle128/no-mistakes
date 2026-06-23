@@ -349,7 +349,10 @@ func TestPRStepBuildPipelineSectionRefreshesReviewResolutionBeforeSummary(t *tes
 	if !strings.Contains(pipelineMD, "Review resolution: final; 0 resolved, 1 accepted without fix, 0 informational, 0 still open.") {
 		t.Fatalf("missing refreshed review resolution summary:\n%s", pipelineMD)
 	}
-	for _, forbidden := range []string{"review-resolution.md", sctx.Paths.Root()} {
+	if !strings.Contains(pipelineMD, "Report: `no-mistakes/feature/review-resolution.md`.") {
+		t.Fatalf("missing repo-relative review resolution report link:\n%s", pipelineMD)
+	}
+	for _, forbidden := range []string{sctx.Paths.Root(), sctx.WorkDir} {
 		if strings.Contains(pipelineMD, forbidden) {
 			t.Fatalf("PR pipeline summary leaked local report detail %q:\n%s", forbidden, pipelineMD)
 		}

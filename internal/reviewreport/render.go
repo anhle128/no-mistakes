@@ -9,8 +9,8 @@ import (
 
 const maxFullDetailReportBytes = 256 * 1024
 
-// RenderMarkdown renders a Review resolution snapshot into the local report
-// artifact format.
+// RenderMarkdown renders a Review resolution snapshot into the committed
+// repo-local report artifact format.
 func RenderMarkdown(snap Snapshot) string {
 	counts := CountEntries(snap.Entries)
 	var b strings.Builder
@@ -33,7 +33,7 @@ func RenderMarkdown(snap Snapshot) string {
 	} else {
 		writeField(&b, "Finalized timestamp", "not finalized")
 	}
-	writeField(&b, "Local report path", sanitizeField(snap.ReportPath))
+	writeField(&b, "Repo report path", sanitizeField(snap.ReportPath))
 
 	b.WriteString("\n## Counts\n\n")
 	writeField(&b, "Resolved", fmt.Sprintf("%d", counts.Resolved))

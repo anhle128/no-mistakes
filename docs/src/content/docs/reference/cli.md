@@ -58,7 +58,7 @@ no-mistakes axi
 With no subcommand, shows the executable path, description, repo, current branch, daemon state, recent runs, and next-step help.
 When the current branch has an active run, that run appears as `active_run` with any approval gate and help for `axi respond` or `axi abort`.
 When only another branch has an active run, that run appears as `other_branch_active_run`; the help tells agents to leave it alone and start validation for the current branch.
-If a shown run has Review findings and a review-resolution report, the run object includes `review_resolution` with `status`, `resolved`, `accepted_without_fix`, `informational`, `still_open`, and the local `path`.
+If a shown run has Review findings and a review-resolution report, the run object includes `review_resolution` with `status`, `resolved`, `accepted_without_fix`, `informational`, `still_open`, and the repo-local `path`.
 
 ## no-mistakes axi run
 

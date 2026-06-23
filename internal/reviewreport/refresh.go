@@ -43,11 +43,15 @@ func Refresh(database *db.DB, p *paths.Paths, runID string) (*db.ReviewResolutio
 			break
 		}
 	}
+	reportPath, err := RepoReportPath(run, repo)
+	if err != nil {
+		return nil, err
+	}
 	if reviewStep == nil {
 		if err := database.DeleteReviewResolutionReport(runID); err != nil {
 			return nil, err
 		}
-		if err := removeReportIfExists(p.ReviewResolutionReportPath(runID)); err != nil {
+		if err := removeReportIfExists(reportPath); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -61,7 +65,6 @@ func Refresh(database *db.DB, p *paths.Paths, runID string) (*db.ReviewResolutio
 		return nil, err
 	}
 
-	reportPath := p.ReviewResolutionReportPath(runID)
 	existing, err := database.GetReviewResolutionReport(runID)
 	if err != nil {
 		return nil, err
@@ -118,6 +121,107 @@ func Refresh(database *db.DB, p *paths.Paths, runID string) (*db.ReviewResolutio
 		return nil, fmt.Errorf("persist review resolution metadata: %w", err)
 	}
 	return database.GetReviewResolutionReport(runID)
+}
+
+// RepoReportRelativePath returns the committed report artifact path promised by
+// the grill-me decision log.
+func RepoReportRelativePath(branch, runID string) string {
+	return filepath.ToSlash(filepath.Join("no-mistakes", ReviewResolutionBranchSlug(branch, runID), "review-resolution.md"))
+}
+
+// RepoReportPath resolves the committed report artifact path for this run.
+// The active execution workdir is authoritative because isolated-worktree runs
+// must write evidence to the checkout that will be pushed.
+func RepoReportPath(run *db.Run, repo *db.Repo) (string, error) {
+	if run == nil {
+		return "", fmt.Errorf("review resolution report path: missing run")
+	}
+	root := ""
+	if run.WorkDir != nil {
+		root = strings.TrimSpace(*run.WorkDir)
+	}
+	if root == "" && repo != nil {
+		root = strings.TrimSpace(repo.WorkingPath)
+	}
+	if root == "" {
+		return "", fmt.Errorf("review resolution report path: missing worktree root")
+	}
+	rel := filepath.FromSlash(RepoReportRelativePath(run.Branch, run.ID))
+	if repoPathHasSymlink(root, rel) {
+		return "", fmt.Errorf("review resolution report path crosses a symlink: %s", rel)
+	}
+	return filepath.Join(root, rel), nil
+}
+
+// ReviewResolutionBranchSlug turns a branch into a safe relative branch path.
+// Git branch separators stay as nested directories, matching the grill-me
+// evidence-path decision while still dropping traversal-like segments.
+func ReviewResolutionBranchSlug(branch, fallback string) string {
+	branch = strings.TrimPrefix(strings.TrimSpace(branch), "refs/heads/")
+	segments := sanitizeReportPathSegments(branch)
+	if len(segments) == 0 {
+		segments = sanitizeReportPathSegments(fallback)
+	}
+	if len(segments) == 0 {
+		return "run"
+	}
+	return filepath.ToSlash(filepath.Join(segments...))
+}
+
+func sanitizeReportPathSegments(s string) []string {
+	var segments []string
+	for _, raw := range strings.Split(s, "/") {
+		segment := sanitizeReportPathSegment(raw)
+		if segment == "" || segment == "." || segment == ".." {
+			continue
+		}
+		segments = append(segments, segment)
+	}
+	return segments
+}
+
+func sanitizeReportPathSegment(s string) string {
+	s = strings.TrimSpace(s)
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	out := b.String()
+	for strings.Contains(out, "--") {
+		out = strings.ReplaceAll(out, "--", "-")
+	}
+	out = strings.Trim(out, "-")
+	if out == "." || out == ".." {
+		return ""
+	}
+	return out
+}
+
+func repoPathHasSymlink(root, rel string) bool {
+	clean := filepath.Clean(rel)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
+		return true
+	}
+	current := root
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return false
+		}
+		if err != nil {
+			return true
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func buildSnapshot(run *db.Run, repo *db.Repo, reviewStep *db.StepResult, rounds []*db.StepRound, decisions []*db.ReviewResolutionDecision, reportPath, gateRepoPath string, existing *db.ReviewResolutionReport) (Snapshot, bool, error) {

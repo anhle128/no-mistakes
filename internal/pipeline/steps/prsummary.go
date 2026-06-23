@@ -104,13 +104,38 @@ func reviewResolutionPRLineWithStatus(report *db.ReviewResolutionReport, statusO
 	if status == "" {
 		status = db.ReviewResolutionStatusEvidenceUnavailable
 	}
-	return fmt.Sprintf("Review resolution: %s; %d resolved, %d accepted without fix, %d informational, %d still open.",
+	line := fmt.Sprintf("Review resolution: %s; %d resolved, %d accepted without fix, %d informational, %d still open.",
 		status,
 		report.ResolvedCount,
 		report.AcceptedCount,
 		report.InformationalCount,
 		report.StillOpenCount,
 	)
+	if rel := reviewResolutionReportRepoRel(report.ReportPath); rel != "" {
+		line += fmt.Sprintf(" Report: `%s`.", rel)
+	}
+	return line
+}
+
+func reviewResolutionReportRepoRel(reportPath string) string {
+	slash := filepath.ToSlash(strings.TrimSpace(reportPath))
+	if isReviewResolutionRepoRel(slash) {
+		return slash
+	}
+	if idx := strings.LastIndex(slash, "/no-mistakes/"); idx >= 0 {
+		candidate := slash[idx+1:]
+		if isReviewResolutionRepoRel(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func isReviewResolutionRepoRel(path string) bool {
+	return strings.HasPrefix(path, "no-mistakes/") &&
+		strings.HasSuffix(path, "/review-resolution.md") &&
+		!strings.Contains(path, "../") &&
+		!strings.Contains(path, "/..")
 }
 
 // BuildTestingSummary extracts a deterministic Testing section from the test step.

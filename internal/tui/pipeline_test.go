@@ -100,7 +100,7 @@ func TestRenderPipelineView_IncludesReviewResolution(t *testing.T) {
 	run.Status = types.RunCompleted
 	run.ReviewResolution = &ipc.ReviewResolutionReportInfo{
 		Exists:             true,
-		Path:               "/tmp/nm/reports/run-001/review-resolution.md",
+		Path:               "no-mistakes/feature/review-resolution.md",
 		Status:             "final",
 		ResolvedCount:      1,
 		AcceptedCount:      1,
@@ -114,7 +114,7 @@ func TestRenderPipelineView_IncludesReviewResolution(t *testing.T) {
 		t.Fatalf("expected review resolution line, got:\n%s", out)
 	}
 	if !strings.Contains(out, "review-resolution.md") {
-		t.Fatalf("expected local report path in TUI, got:\n%s", out)
+		t.Fatalf("expected repo-local report path in TUI, got:\n%s", out)
 	}
 }
 

@@ -127,9 +127,9 @@ Run the pipeline and decide on its findings as they come up:
    the pipeline owns both the findings and the fixes. Your job at a gate is to
    decide and respond; `--action fix` has the pipeline apply the fix and
    re-review the result. When Review findings exist, no-mistakes maintains a
-   local review-resolution report at `$NM_HOME/reports/<runID>/review-resolution.md`;
-   AXI/TUI show compact status/counts/path, while PR bodies only include
-   compact counts/status and never publish local paths.
+   repo-local review-resolution report at `no-mistakes/<branch-slug>/review-resolution.md`;
+   AXI/TUI show compact status/counts/path, while PR bodies include compact
+   counts/status plus the repo-relative path and never publish absolute local paths.
 
     Each `respond` blocks until the next `gate:`, `checks-passed` decision point, or final outcome.
 
@@ -210,7 +210,7 @@ no-mistakes axi abort         # cancel the current-branch active run
 
 - Output is TOON: `key: value` pairs, `name[N]{cols}:` tables, and `help[N]:` hints.
 - The `help` list at the bottom of most responses tells you the next commands to run.
-- A run may include `review_resolution:` with compact status/counts and a local path
+- A run may include `review_resolution:` with compact status/counts and a repo-local path
   when the Review step recorded findings.
 - Errors are printed as `error: ...` on stdout with a `help` list; act on the suggestion.
 - Current-checkout runs include `worktree_mode: current` and

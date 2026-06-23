@@ -14,7 +14,7 @@ Report Format Version: 1
 - First generated timestamp: 2023-11-14T22:13:20Z
 - Last refreshed timestamp: 2023-11-14T22:14:20Z
 - Finalized timestamp: not finalized
-- Local report path: /tmp/nm/reports/run-legacy/review-resolution.md
+- Repo report path: /repo/project/no-mistakes/feature/legacy/review-resolution.md
 
 ## Counts
 

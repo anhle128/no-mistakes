@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,10 @@ func TestExecutorFinalizesReviewResolutionReportOnRunCompletion(t *testing.T) {
 	if report.InformationalCount != 1 || report.EntryCount != 1 {
 		t.Fatalf("unexpected report counts: %+v", report)
 	}
+	wantPath := filepath.Join(workDir, "no-mistakes", "feature", "review-resolution.md")
+	if report.ReportPath != wantPath {
+		t.Fatalf("report path = %q, want %q", report.ReportPath, wantPath)
+	}
 	raw, err := os.ReadFile(report.ReportPath)
 	if err != nil {
 		t.Fatalf("read report: %v", err)
@@ -75,7 +80,8 @@ func TestExecutorDoesNotCreateReviewResolutionReportForNonReviewFindings(t *test
 	if report != nil {
 		t.Fatalf("non-review findings created review resolution report: %+v", report)
 	}
-	if _, err := os.Stat(p.ReviewResolutionReportPath(run.ID)); !os.IsNotExist(err) {
+	oldLocalPath := filepath.Join(p.Root(), "reports", run.ID, "review-resolution.md")
+	if _, err := os.Stat(oldLocalPath); !os.IsNotExist(err) {
 		t.Fatalf("expected no review resolution report file, stat err=%v", err)
 	}
 }

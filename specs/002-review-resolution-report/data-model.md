@@ -75,7 +75,7 @@ Fields:
 | Field | Type | Notes |
 |-------|------|-------|
 | `run_id` | TEXT PRIMARY KEY | References `runs(id)` with cascade delete |
-| `report_path` | TEXT NOT NULL | Absolute local `$NM_HOME` path |
+| `report_path` | TEXT NOT NULL | Absolute checkout path to repo-local `no-mistakes/<branch-slug>/review-resolution.md` artifact |
 | `status` | TEXT NOT NULL | Enum below |
 | `resolved_count` | INTEGER NOT NULL | Classified resolved issues |
 | `accepted_count` | INTEGER NOT NULL | Accepted without fix |

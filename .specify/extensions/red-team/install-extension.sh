@@ -5,6 +5,7 @@ set -Eeuo pipefail
 REPOS=(
   "/Users/dale/Desktop/workspace/OceanLabs/x10.oh.cowork"
   "/Users/dale/Desktop/workspace/OceanLabs/workflow-engine/no-mistakes"
+  "/Users/dale/Desktop/workspace/OceanLabs/workflow-engine/Archon"
 )
 
 EXTENSION_ID="red-team"

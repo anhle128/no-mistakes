@@ -225,7 +225,7 @@ type RunInfo struct {
 	ReviewBaseRefreshAttempted bool                       `json:"review_base_refresh_attempted,omitempty"`
 	ReviewBaseRefreshError     string                     `json:"review_base_refresh_error,omitempty"`
 	RejectionReason            string                     `json:"rejection_reason,omitempty"`
-	// ReviewResolution carries compact local report metadata for runs whose
+	// ReviewResolution carries compact repo-local report metadata for runs whose
 	// Review step recorded findings. Clean Review runs omit it.
 	ReviewResolution *ReviewResolutionReportInfo `json:"review_resolution,omitempty"`
 	Steps            []StepResultInfo            `json:"steps,omitempty"`
@@ -233,8 +233,8 @@ type RunInfo struct {
 	UpdatedAt        int64                       `json:"updated_at"`
 }
 
-// ReviewResolutionReportInfo is the IPC-safe summary of a local Review
-// resolution report. It intentionally carries counts and a local path only;
+// ReviewResolutionReportInfo is the IPC-safe summary of a repo-local Review
+// resolution report. It intentionally carries counts and the artifact path;
 // full per-finding narrative remains in the Markdown report on disk.
 type ReviewResolutionReportInfo struct {
 	Exists             bool   `json:"exists"`

@@ -61,13 +61,13 @@ AI code review of your diff.
 - Includes user intent when the run has supplied intent or transcript matching found a relevant local agent session
 - Agent returns findings with severity (`error`, `warning`, `info`), file location, description, and an `action` (`no-op`, `auto-fix`, `ask-user`)
 - Also returns a `risk_level` (`low`, `medium`, `high`) and `risk_rationale`
-- When findings exist, writes a local review-resolution report at `~/.no-mistakes/reports/<runID>/review-resolution.md` and compact SQLite metadata with status and outcome counts
+- When findings exist, writes a repo-local review-resolution report at `no-mistakes/<branch-slug>/review-resolution.md` and compact SQLite metadata with status and outcome counts
 
 Review-resolution statuses are `in_progress`, `final`, `incomplete`, `stale`, `degraded`, and `evidence_unavailable`. A clean Review run omits the report entirely. Nonzero still-open counts, stale metadata, degraded evidence, and evidence-unavailable states are surfaced as non-success states in AXI, TUI, and PR summaries.
 
 **Approval:** required if any finding has severity `error` or `warning`. Findings with `action: ask-user` pause for approval instead of entering the normal auto-fix loop. This is for findings that challenge the author's intent, not routine correctness, reliability, or security fixes that may need to re-add a small amount of deleted logic. Findings with `action: auto-fix` remain eligible for the fix loop. Findings with `action: no-op` are informational only.
 
-**Auto-fix:** the agent receives the selected previous findings plus any per-finding user notes, any selected user-authored findings from the TUI or AXI interface, and a sanitized history of prior rounds for that step, including earlier fix summaries and which findings the user left unselected. Follow-up review passes use that history to avoid re-reporting user-ignored findings unless the code now has a materially different problem. Review fix responses may also include structured per-finding `resolutions[]` evidence, which is stored for the local review-resolution report. Fix commits use `no-mistakes(review): <summary>`.
+**Auto-fix:** the agent receives the selected previous findings plus any per-finding user notes, any selected user-authored findings from the TUI or AXI interface, and a sanitized history of prior rounds for that step, including earlier fix summaries and which findings the user left unselected. Follow-up review passes use that history to avoid re-reporting user-ignored findings unless the code now has a materially different problem. Review fix responses may also include structured per-finding `resolutions[]` evidence, which is stored for the repo-local review-resolution report. Fix commits use `no-mistakes(review): <summary>`.
 
 **Default auto-fix limit:** `0`.
 
@@ -129,7 +129,8 @@ Pushes the validated branch to the real upstream remote.
 
 **Behavior:**
 - If `commands.format` is set, runs it first
-- Stages in-repo test evidence artifacts when `test.evidence.store_in_repo` is enabled and the evidence directory is not ignored by Git, while leaving any repo-local `no-mistakes/<branch-slug>/review-resolution.md` file unstaged because Review resolution reports are local `$NM_HOME` artifacts
+- Stages in-repo test evidence artifacts when `test.evidence.store_in_repo` is enabled and the evidence directory is not ignored by Git
+- Force-adds exactly the current run's repo-local `no-mistakes/<branch-slug>/review-resolution.md` report when it exists, even if `no-mistakes/` is ignored, without staging unrelated `no-mistakes/` files
 - Commits any uncommitted agent changes with message `no-mistakes: apply agent fixes`
 - Queries upstream via `git ls-remote` to get the current SHA for the branch
 - Uses `--force-with-lease` when updating an existing branch (safe force-push that fails if the remote has diverged)

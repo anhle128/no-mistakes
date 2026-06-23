@@ -18,7 +18,7 @@ func TestRenderMarkdownMixedResolvedAcceptedGolden(t *testing.T) {
 		HeadSHA:        "head456",
 		ReviewStatus:   "completed",
 		ReportStatus:   "final",
-		ReportPath:     "/tmp/nm/reports/run-123/review-resolution.md",
+		ReportPath:     "/repo/project/no-mistakes/feature/review-report/review-resolution.md",
 		FirstGenerated: 1700000000,
 		LastRefreshed:  1700000060,
 		FinalizedAt:    &finalized,
@@ -105,7 +105,7 @@ func TestRenderMarkdownStructuredAndLegacyGolden(t *testing.T) {
 		HeadSHA:        "head999",
 		ReviewStatus:   "completed",
 		ReportStatus:   "final",
-		ReportPath:     "/tmp/nm/reports/run-legacy/review-resolution.md",
+		ReportPath:     "/repo/project/no-mistakes/feature/legacy/review-resolution.md",
 		FirstGenerated: 1700000000,
 		LastRefreshed:  1700000060,
 		Entries: []Entry{

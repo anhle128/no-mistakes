@@ -1,14 +1,10 @@
 # Review Resolution Report Plan
 
-> Status: superseded by `specs/002-review-resolution-report/plan.md` and the
-> implemented review-report pipeline. This file records an earlier grill-me
-> design that treated the report as committed PR evidence. The shipped design
-> writes the durable Markdown artifact to
-> `$NM_HOME/reports/<runID>/review-resolution.md`, stores compact metadata in
-> SQLite, and references that metadata from AXI, the TUI, and PR summaries. It
-> does not commit a repo-local `no-mistakes/<branch-slug>/review-resolution.md`
-> file, force-add report artifacts, or require one review finding per fix
-> commit.
+> Authority note (2026-06-21): The earlier `superseded` header on this file
+> was invalid. The full `## Decisions` section below is the binding origin for
+> the review-resolution report contract. Current specs and implementation must
+> preserve the repo-local committed report direction unless a later explicit
+> decision record replaces it.
 
 ## Goal
 

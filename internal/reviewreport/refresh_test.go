@@ -42,10 +42,78 @@ func runReportGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func TestRepoReportPathUsesBranchSlugInsideWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	run := &db.Run{
+		ID:      "run-123",
+		Branch:  "../../feature/add review!",
+		WorkDir: &workDir,
+	}
+	got, err := RepoReportPath(run, &db.Repo{WorkingPath: "/wrong/repo"})
+	if err != nil {
+		t.Fatalf("RepoReportPath() error = %v", err)
+	}
+	want := filepath.Join(workDir, "no-mistakes", "feature", "add-review", "review-resolution.md")
+	if got != want {
+		t.Fatalf("RepoReportPath() = %q, want %q", got, want)
+	}
+}
+
+func TestRepoReportPathFallsBackToRepoWorkingPath(t *testing.T) {
+	repoDir := t.TempDir()
+	run := &db.Run{ID: "run-123", Branch: "feature/review"}
+	got, err := RepoReportPath(run, &db.Repo{WorkingPath: repoDir})
+	if err != nil {
+		t.Fatalf("RepoReportPath() error = %v", err)
+	}
+	want := filepath.Join(repoDir, "no-mistakes", "feature", "review", "review-resolution.md")
+	if got != want {
+		t.Fatalf("RepoReportPath() = %q, want %q", got, want)
+	}
+}
+
+func TestRepoReportRelativePathMatchesGrillMeBranchExamples(t *testing.T) {
+	tests := []struct {
+		branch string
+		want   string
+	}{
+		{
+			branch: "feature/review-report",
+			want:   "no-mistakes/feature/review-report/review-resolution.md",
+		},
+		{
+			branch: "../../main",
+			want:   "no-mistakes/main/review-resolution.md",
+		},
+		{
+			branch: "feat:fix login",
+			want:   "no-mistakes/feat-fix-login/review-resolution.md",
+		},
+	}
+
+	for _, tt := range tests {
+		if got := RepoReportRelativePath(tt.branch, "run-123"); got != tt.want {
+			t.Fatalf("RepoReportRelativePath(%q) = %q, want %q", tt.branch, got, tt.want)
+		}
+	}
+}
+
+func TestRepoReportPathRejectsSymlinkedReportDirectory(t *testing.T) {
+	workDir := t.TempDir()
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(workDir, "no-mistakes")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	run := &db.Run{ID: "run-123", Branch: "feature", WorkDir: &workDir}
+	if _, err := RepoReportPath(run, &db.Repo{WorkingPath: workDir}); err == nil {
+		t.Fatal("expected symlinked report directory to be rejected")
+	}
+}
+
 func TestRefreshMixedResolvedAcceptedInformationalReport(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 
@@ -134,7 +202,7 @@ func TestRefreshMixedResolvedAcceptedInformationalReport(t *testing.T) {
 func TestRefreshDegradesPartialStructuredResolutionCoverage(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 
@@ -264,7 +332,7 @@ func TestRefreshLegacyFixFallbackUsesCommitChangedFiles(t *testing.T) {
 func TestRefreshChangedFollowupFindingIDKeepsOriginalStillOpen(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 
@@ -308,7 +376,7 @@ func TestRefreshChangedFollowupFindingIDKeepsOriginalStillOpen(t *testing.T) {
 func TestRefreshPartialFollowupResolvesFixedKnownFinding(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 
@@ -352,7 +420,7 @@ func TestRefreshPartialFollowupResolvesFixedKnownFinding(t *testing.T) {
 func TestRefreshNoCommitEmptyFixRoundKeepsSelectedFindingOpen(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 
@@ -407,7 +475,7 @@ func TestRefreshNoCommitEmptyFixRoundKeepsSelectedFindingOpen(t *testing.T) {
 func TestRefreshSkippedReviewWithAcceptedFindingIsFinal(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 
@@ -541,7 +609,7 @@ func TestMetadataStatusMarksHashMismatchStale(t *testing.T) {
 func TestMetadataStatusForRunMarksSourceWatermarkDriftStale(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 	findings := `{"findings":[{"id":"review-1","severity":"warning","description":"needs review","action":"ask-user"}],"summary":"1 finding"}`
@@ -575,7 +643,7 @@ func TestMetadataStatusForRunMarksSourceWatermarkDriftStale(t *testing.T) {
 func TestRefreshUnparsableReviewEvidenceProducesEvidenceUnavailableReport(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 	bad := `{"findings":`
@@ -601,7 +669,7 @@ func TestRefreshUnparsableReviewEvidenceProducesEvidenceUnavailableReport(t *tes
 func TestRefreshCleanReviewDeletesMetadata(t *testing.T) {
 	d := openReportTestDB(t)
 	p := paths.WithRoot(t.TempDir())
-	repo, _ := d.InsertRepo("/repo/project", "git@github.com:user/project.git", "main")
+	repo, _ := d.InsertRepo(t.TempDir(), "git@github.com:user/project.git", "main")
 	run, _ := d.InsertRun(repo.ID, "feature", "head", "base")
 	step, _ := d.InsertStepResult(run.ID, types.StepReview)
 	clean := `{"findings":[],"summary":"clean"}`

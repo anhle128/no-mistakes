@@ -181,7 +181,7 @@ Everything lives under `~/.no-mistakes/` by default. Set `NM_HOME` to relocate i
 | `repos/<id>.git` | Bare gate repos |
 | `repos/<id>.git/notify-push.log` | Persistent hook notification failure log |
 | `worktrees/<repoID>/<runID>/` | Disposable worktrees (cleaned up after each run) |
-| `reports/<runID>/review-resolution.md` | Local Review resolution report when Review findings exist |
+| target repo `no-mistakes/<branch-slug>/review-resolution.md` | Committed Review resolution report when Review findings exist |
 | current git worktree | Opt-in `--no-worktree` execution directory, recorded in run metadata and never cleaned up by no-mistakes |
 | `logs/<runID>/<step>.log` | Per-step log files |
 | `logs/daemon.log` | Daemon log |

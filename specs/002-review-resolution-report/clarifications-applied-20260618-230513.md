@@ -191,3 +191,18 @@
 
 **Your Answer:** recommended
 **Reason:** FR-026 requires documentation and generated agent-facing guidance updates when report behavior, AXI/TUI output, or PR summary content changes (`specs/002-review-resolution-report/spec.md:149`). The constitution names the exact doc families in scope: Review, Auto-Fix Loop, Pipeline, AXI, TUI, PR summaries, local state paths, and affected `/no-mistakes` skill text (`specs/002-review-resolution-report/spec.md:166`).
+
+## Correction Note - 2026-06-21
+
+These clarifications remain useful for metadata, sanitization, status, and
+surface behavior, but they must be read under the corrected grill-me authority:
+the full `## Decisions` section in `plans/grill-me/review-resolution-report.md`
+is binding. The prior interpretation that moved the report to
+`$NM_HOME/reports/<runID>/review-resolution.md` was based on an invalid
+`superseded` header and is not current product direction.
+
+Any local-only path, no-force-add, or PR-no-path reading derived from this
+clarification batch is superseded. The current contract is repo-local committed
+evidence at `no-mistakes/<branch-slug>/review-resolution.md`, exact force-add
+staging for that artifact, and PR surfacing of the repo-relative path without
+absolute local filesystem details.

@@ -107,7 +107,7 @@ On startup, the daemon checks for runs that were left in `pending` or `running` 
 
 ## Logging
 
-Daemon logs go to `~/.no-mistakes/logs/daemon.log`. The setup wizard captures managed agent-server output in `~/.no-mistakes/logs/wizard-agent.log`. Each pipeline step also writes to its own log at `~/.no-mistakes/logs/<runID>/<step>.log`, and fatal step errors are appended there so the step log includes the failure reason even when the detail comes from command stderr. Review resolution reports, when Review findings exist, are written under `~/.no-mistakes/reports/<runID>/review-resolution.md`.
+Daemon logs go to `~/.no-mistakes/logs/daemon.log`. The setup wizard captures managed agent-server output in `~/.no-mistakes/logs/wizard-agent.log`. Each pipeline step also writes to its own log at `~/.no-mistakes/logs/<runID>/<step>.log`, and fatal step errors are appended there so the step log includes the failure reason even when the detail comes from command stderr. Review resolution reports, when Review findings exist, are written into the run checkout at `no-mistakes/<branch-slug>/review-resolution.md` so they can be committed as PR evidence.
 
 Set the log level in global config:
 

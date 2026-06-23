@@ -50,7 +50,7 @@ func TestBuildPipelineSummary_AllClean(t *testing.T) {
 	}
 }
 
-func TestBuildPipelineSummaryWithReviewResolutionOmitsLocalPath(t *testing.T) {
+func TestBuildPipelineSummaryWithReviewResolutionLinksRepoReportPath(t *testing.T) {
 	t.Parallel()
 	steps := []*db.StepResult{
 		{ID: "s1", StepName: types.StepReview, Status: types.StepStatusCompleted},
@@ -59,7 +59,7 @@ func TestBuildPipelineSummaryWithReviewResolutionOmitsLocalPath(t *testing.T) {
 		"s1": {{Round: 1, Trigger: "initial", DurationMS: 500}},
 	}
 	report := &db.ReviewResolutionReport{
-		ReportPath:         "/Users/dale/.no-mistakes/reports/run/review-resolution.md",
+		ReportPath:         "/Users/dale/work/project/no-mistakes/feature/review-report/review-resolution.md",
 		Status:             db.ReviewResolutionStatusFinal,
 		ResolvedCount:      1,
 		AcceptedCount:      1,
@@ -69,10 +69,10 @@ func TestBuildPipelineSummaryWithReviewResolutionOmitsLocalPath(t *testing.T) {
 
 	md, _ := BuildPipelineSummaryWithReviewResolution(steps, rounds, report)
 
-	if !strings.Contains(md, "Review resolution: final; 1 resolved, 1 accepted without fix, 0 informational, 0 still open.") {
+	if !strings.Contains(md, "Review resolution: final; 1 resolved, 1 accepted without fix, 0 informational, 0 still open. Report: `no-mistakes/feature/review-report/review-resolution.md`.") {
 		t.Fatalf("missing compact review resolution line:\n%s", md)
 	}
-	for _, forbidden := range []string{"/Users/dale", "$NM_HOME", "review-resolution.md"} {
+	for _, forbidden := range []string{"/Users/dale", "$NM_HOME"} {
 		if strings.Contains(md, forbidden) {
 			t.Fatalf("PR summary leaked local report path %q:\n%s", forbidden, md)
 		}

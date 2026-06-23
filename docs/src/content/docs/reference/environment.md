@@ -17,7 +17,7 @@ When set, everything else moves under this root:
 - Global config: `$NM_HOME/config.yaml`
 - Gate repos: `$NM_HOME/repos/<id>.git`
 - Disposable worktrees: `$NM_HOME/worktrees/<repoID>/<runID>/`
-- Review resolution reports: `$NM_HOME/reports/<runID>/review-resolution.md`
+- Review resolution report metadata: `$NM_HOME/state.sqlite`; report artifacts are written in the run checkout at `no-mistakes/<branch-slug>/review-resolution.md`
 - Logs: `$NM_HOME/logs/`
 - Database: `$NM_HOME/state.sqlite`
 - Socket / PID: `$NM_HOME/socket` and `$NM_HOME/daemon.pid`

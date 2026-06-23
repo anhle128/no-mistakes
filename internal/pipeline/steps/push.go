@@ -8,6 +8,7 @@ import (
 
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -33,6 +34,9 @@ func (s *PushStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, e
 
 	// Commit any uncommitted changes from agent fixes
 	if err := s.stageInRepoEvidence(sctx); err != nil {
+		return nil, err
+	}
+	if err := s.stageReviewResolutionReport(sctx); err != nil {
 		return nil, err
 	}
 	status, _ := git.Run(ctx, sctx.WorkDir, "status", "--porcelain")
@@ -122,9 +126,6 @@ func (s *PushStep) stageInRepoEvidence(sctx *pipeline.StepContext) error {
 			return nil
 		}
 		slashRel := filepath.ToSlash(fileRel)
-		if isRepoLocalReviewResolutionReport(slashRel) {
-			return nil
-		}
 		if _, err := git.Run(ctx, sctx.WorkDir, "add", "-f", "--", slashRel); err != nil {
 			return fmt.Errorf("stage test evidence %s: %w", slashRel, err)
 		}
@@ -132,9 +133,41 @@ func (s *PushStep) stageInRepoEvidence(sctx *pipeline.StepContext) error {
 	})
 }
 
-func isRepoLocalReviewResolutionReport(rel string) bool {
+func (s *PushStep) stageReviewResolutionReport(sctx *pipeline.StepContext) error {
+	report, err := sctx.DB.GetReviewResolutionReport(sctx.Run.ID)
+	if err != nil {
+		return fmt.Errorf("read review resolution report metadata: %w", err)
+	}
+	if report == nil || strings.TrimSpace(report.ReportPath) == "" {
+		return nil
+	}
+	info, err := os.Stat(report.ReportPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat review resolution report: %w", err)
+	}
+	if info.IsDir() {
+		return nil
+	}
+	rel, err := filepath.Rel(sctx.WorkDir, report.ReportPath)
+	if err != nil || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return nil
+	}
+	slashRel := filepath.ToSlash(rel)
+	if !isRepoLocalReviewResolutionReport(slashRel, sctx.Run.Branch, sctx.Run.ID) {
+		return nil
+	}
+	if _, err := git.Run(sctx.Ctx, sctx.WorkDir, "add", "-f", "--", slashRel); err != nil {
+		return fmt.Errorf("stage review resolution report %s: %w", slashRel, err)
+	}
+	return nil
+}
+
+func isRepoLocalReviewResolutionReport(rel, branch, runID string) bool {
 	rel = strings.TrimPrefix(filepath.ToSlash(rel), "./")
-	return strings.HasPrefix(rel, "no-mistakes/") && strings.HasSuffix(rel, "/review-resolution.md")
+	return rel == reviewreport.RepoReportRelativePath(branch, runID)
 }
 
 func dirHasFiles(dir string) bool {

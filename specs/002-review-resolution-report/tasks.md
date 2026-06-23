@@ -34,8 +34,8 @@ description: "Task list for Review Resolution Report implementation"
 
 **Critical**: No user story implementation should begin until these contracts are complete.
 
-- [X] T005 [P] Add path helper tests for `ReportsDir`, `ReviewResolutionReportPath`, and `EnsureDirs` in `internal/paths/paths_test.go`
-- [X] T006 Implement `ReportsDir()` and `ReviewResolutionReportPath(runID string)` and ensure reports directory creation in `internal/paths/paths.go`
+- [X] T005 [P] Add repo-local report path helper tests for `no-mistakes/<branch-slug>/review-resolution.md`, workdir fallback, branch segment sanitization, and symlink rejection in `internal/reviewreport/refresh_test.go`
+- [X] T006 Implement repo-local report path helpers and branch segment sanitization in `internal/reviewreport/refresh.go`
 - [X] T007 [P] Add additive migration tests for `review_resolution_reports`, `review_resolution_decisions`, and new `step_rounds` evidence columns in `internal/db/review_resolution_report_test.go`
 - [X] T008 Add `review_resolution_reports`, `review_resolution_decisions`, `fix_commit_sha`, `no_commit_reason`, and `fix_resolution_details_json` schema/migrations in `internal/db/schema.go`
 - [X] T009 Implement review-resolution metadata model and upsert/read/delete accessors in `internal/db/review_resolution_report.go`
@@ -56,9 +56,9 @@ description: "Task list for Review Resolution Report implementation"
 
 ## Phase 3: User Story 1 - Read Review Outcomes After a Gate Run (Priority: P1) MVP
 
-**Goal**: Create a durable local report after Review findings and expose compact report status/counts/path through local run-detail surfaces.
+**Goal**: Create a durable repo-local report after Review findings and expose compact report status/counts/path through run-detail surfaces.
 
-**Independent Test**: Run a Review scenario with two findings, one fixed and one explicitly approved; verify `$NM_HOME/reports/<runID>/review-resolution.md`, SQLite metadata, AXI output, and TUI output agree on both findings.
+**Independent Test**: Run a Review scenario with two findings, one fixed and one explicitly approved; verify `no-mistakes/<branch-slug>/review-resolution.md`, SQLite metadata, AXI output, and TUI output agree on both findings.
 
 ### Tests for User Story 1
 
@@ -77,8 +77,8 @@ description: "Task list for Review Resolution Report implementation"
 - [X] T029 [US1] Implement atomic report refresh, content hash, source watermark, status/count metadata, and write failure propagation in `internal/reviewreport/refresh.go`
 - [X] T030 [US1] Persist Review approve/skip decision provenance with action, actor/source, affected finding IDs, timestamp, and reason fields in `internal/pipeline/executor.go`
 - [X] T031 [US1] Call `reviewreport.Refresh` after initial Review findings, after Review fix rounds, and after approve/skip completion in `internal/pipeline/executor.go`
-- [X] T032 [US1] Render AXI report status, resolved/accepted/informational/still-open counts, and local path in `internal/cli/axi_render.go`
-- [X] T033 [US1] Render TUI report status, counts, and local path in `internal/tui/pipeline.go`
+- [X] T032 [US1] Render AXI report status, resolved/accepted/informational/still-open counts, and repo-local path in `internal/cli/axi_render.go`
+- [X] T033 [US1] Render TUI report status, counts, and repo-local path in `internal/tui/pipeline.go`
 - [X] T034 [US1] Ensure report metadata reaches AXI/TUI through `internal/daemon/daemon.go` and `internal/ipc/protocol.go`
 
 **Checkpoint**: US1 is independently demonstrable with a mixed fixed/approved Review run.
@@ -140,21 +140,21 @@ description: "Task list for Review Resolution Report implementation"
 
 ## Phase 6: User Story 4 - Reference Review Resolution From PR Summary (Priority: P3)
 
-**Goal**: Add compact review-resolution status/counts to generated PR content without exposing local paths, report excerpts, or fake public links.
+**Goal**: Add compact review-resolution status/counts and repo-relative report path to generated PR content without exposing absolute local paths, report excerpts, or fake public links.
 
-**Independent Test**: Build PR content for runs with and without report metadata; verify the PR body includes compact counts/status only when metadata exists and never includes `$NM_HOME`, absolute local paths, report excerpts, or blob links for `review-resolution.md`.
+**Independent Test**: Build PR content for runs with and without report metadata; verify the PR body includes compact counts/status and repo-relative path only when metadata exists and never includes absolute local paths or report excerpts.
 
 ### Tests for User Story 4
 
 - [X] T056 [P] [US4] Add PR summary tests for compact report metadata rendering, omit-when-absent behavior, and non-success wording in `internal/pipeline/steps/prsummary_test.go`
-- [X] T057 [P] [US4] Add PR and push/evidence staging tests for pre-summary reconciliation, local-path privacy, and proving review-resolution reports stay under `$NM_HOME` metadata paths and are never staged or force-added from a repo-local `no-mistakes/<branch-slug>/review-resolution.md` path in `internal/pipeline/steps/pr_test.go` and `internal/pipeline/steps/push_test.go`
+- [X] T057 [P] [US4] Add PR and push/evidence staging tests for pre-summary reconciliation, absolute-path privacy, and proving the exact current repo-local `no-mistakes/<branch-slug>/review-resolution.md` report is force-added while unrelated `no-mistakes/` files are ignored in `internal/pipeline/steps/pr_test.go` and `internal/pipeline/steps/push_test.go`
 - [X] T058 [P] [US4] Add clean-run omission tests for IPC/AXI report metadata in `internal/ipc/protocol_test.go` and `internal/cli/axi_render_test.go`
 
 ### Implementation for User Story 4
 
 - [X] T059 [US4] Reconcile review report metadata before PR summary generation uses it in `internal/pipeline/steps/pr.go`
-- [X] T060 [US4] Add compact `Review resolution` status/count rendering to the generated `## Pipeline` section in `internal/pipeline/steps/prsummary.go`
-- [X] T061 [US4] Prevent `$NM_HOME`, absolute local paths, `review-resolution.md` local paths, report excerpts, and generated GitHub blob links from PR content in `internal/pipeline/steps/prsummary.go` and `internal/pipeline/steps/pr.go`
+- [X] T060 [US4] Add compact `Review resolution` status/count rendering and repo-relative report path to the generated `## Pipeline` section in `internal/pipeline/steps/prsummary.go`
+- [X] T061 [US4] Prevent absolute local paths, report excerpts, and generated private-path blob links from PR content in `internal/pipeline/steps/prsummary.go` and `internal/pipeline/steps/pr.go`
 - [X] T062 [US4] Omit review-resolution status entirely for clean Review runs and runs without report metadata in `internal/pipeline/steps/prsummary.go`
 
 **Checkpoint**: US4 is independently demonstrable with PR body fixtures for report-present and report-absent runs.
@@ -191,7 +191,7 @@ description: "Task list for Review Resolution Report implementation"
 
 ### User Story Dependencies
 
-- **US1 (P1)**: Delivers MVP report creation, local metadata, AXI/TUI exposure.
+- **US1 (P1)**: Delivers MVP report creation, metadata, AXI/TUI exposure.
 - **US2 (P1)**: Delivers trust-preserving incomplete/failure/cancel behavior; product behavior is independent from US1 but shares report classifier and refresh files.
 - **US3 (P2)**: Adds richer fix evidence while preserving legacy summary-only behavior.
 - **US4 (P3)**: Adds PR summary surfacing after compact metadata exists.
@@ -251,7 +251,7 @@ Task: "T033 [US1] Render TUI compact report metadata in internal/tui/pipeline.go
 
 1. Add US3 structured fix details while preserving legacy `summary`.
 2. Add US4 compact PR status/counts using persisted metadata only.
-3. Keep PR content local-path-free and narrative-free.
+3. Keep PR content absolute-local-path-free and narrative-free while preserving the repo-relative report path.
 
 ### Final Validation
 
@@ -263,6 +263,6 @@ Task: "T033 [US1] Render TUI compact report metadata in internal/tui/pipeline.go
 
 - `[P]` tasks must not edit the same files concurrently.
 - `internal/reviewreport` owns classification, sanitization, rendering, and refresh rules; other packages should consume its metadata or refresh API instead of duplicating status logic.
-- PR summaries must never publish `$NM_HOME`, local report paths, report excerpts, or generated blob links for `review-resolution.md`.
-- AXI/TUI may show the local report path because those are local run-detail surfaces.
+- PR summaries must never publish absolute local paths, report excerpts, or generated private-path blob links for `review-resolution.md`; they may show the repo-relative report path.
+- AXI/TUI may show the repo-local report path because those are local run-detail surfaces.
 - Any report or metadata write failure after Review findings exist must fail the Review step/run with an actionable error.

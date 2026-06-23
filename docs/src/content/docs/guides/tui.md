@@ -45,7 +45,7 @@ Shows the branch name and run status in the header, followed by each step:
 
 ```
   feature/login-fix  running
-  Review resolution: final; 1 resolved, 1 accepted, 0 info, 0 open - ~/.no-mistakes/reports/<runID>/review-resolution.md
+  Review resolution: final; 1 resolved, 1 accepted, 0 info, 0 open - no-mistakes/feature/login-fix/review-resolution.md
   ────────────────────────────
   – Intent
   │

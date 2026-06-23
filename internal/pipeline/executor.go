@@ -118,6 +118,12 @@ func (e *Executor) Execute(ctx context.Context, run *db.Run, repo *db.Repo, work
 		return fmt.Errorf("update run status: %w", err)
 	}
 	run.Status = types.RunRunning
+	if strings.TrimSpace(workDir) != "" && (run.WorkDir == nil || *run.WorkDir != workDir) {
+		if err := e.db.UpdateRunWorkDir(run.ID, workDir); err != nil {
+			return fmt.Errorf("update run work dir: %w", err)
+		}
+		run.WorkDir = &workDir
+	}
 	e.emitRunEvent(ipc.EventRunUpdated, run, repo)
 
 	// Create log directory for this run

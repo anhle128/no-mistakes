@@ -169,3 +169,63 @@ var migrationStatements = []string{
 	`ALTER TABLE runs ADD COLUMN rejection_reason TEXT`,
 	`ALTER TABLE runs ADD COLUMN skip_steps TEXT`,
 }
+
+const createReviewResolutionReportsSQL = `
+CREATE TABLE review_resolution_reports (
+	run_id              TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+	report_path         TEXT NOT NULL,
+	status              TEXT NOT NULL,
+	resolved_count      INTEGER NOT NULL,
+	accepted_count      INTEGER NOT NULL,
+	informational_count INTEGER NOT NULL,
+	still_open_count    INTEGER NOT NULL,
+	report_version      TEXT NOT NULL,
+	entry_count         INTEGER NOT NULL,
+	source_round_start  INTEGER,
+	source_round_end    INTEGER,
+	source_watermark    TEXT NOT NULL,
+	content_hash        TEXT NOT NULL,
+	last_refresh_result TEXT NOT NULL,
+	first_generated_at  INTEGER NOT NULL,
+	last_refreshed_at   INTEGER NOT NULL,
+	finalized_at        INTEGER,
+	created_at          INTEGER NOT NULL,
+	updated_at          INTEGER NOT NULL
+)`
+
+var reviewResolutionReportCurrentColumns = []string{
+	"run_id",
+	"report_path",
+	"status",
+	"resolved_count",
+	"accepted_count",
+	"informational_count",
+	"still_open_count",
+	"report_version",
+	"entry_count",
+	"source_round_start",
+	"source_round_end",
+	"source_watermark",
+	"content_hash",
+	"last_refresh_result",
+	"first_generated_at",
+	"last_refreshed_at",
+	"finalized_at",
+	"created_at",
+	"updated_at",
+}
+
+var reviewResolutionReportLegacyColumns = []string{
+	"contract_version",
+	"latest_outcome",
+	"summary_counts_json",
+	"generation_mode",
+	"source_snapshot_at",
+	"source_step_result_id",
+	"source_round_ids_json",
+	"latest_review_round_id",
+	"latest_fix_round_id",
+	"generated_at",
+	"stale",
+	"safe_error",
+}

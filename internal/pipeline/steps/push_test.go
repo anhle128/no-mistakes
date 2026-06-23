@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/kunchenguid/no-mistakes/internal/config"
+	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/reviewreport"
 )
 
 func TestPushStep_ReconcilesStaleDatabaseHeadSHA(t *testing.T) {
@@ -143,41 +145,55 @@ func TestPushStep_DoesNotForceAddIgnoredEvidenceDirectory(t *testing.T) {
 	}
 }
 
-func TestPushStep_DoesNotStageRepoLocalReviewResolutionReport(t *testing.T) {
+func TestPushStep_StagesExactRepoLocalReviewResolutionReport(t *testing.T) {
 	t.Parallel()
 	dir, baseSHA, headSHA := setupGitRepo(t)
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("review-resolution.md\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("no-mistakes/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitCmd(t, dir, "add", ".gitignore")
 	gitCmd(t, dir, "commit", "-m", "ignore local reports")
 	headSHA = gitCmd(t, dir, "rev-parse", "HEAD")
 
-	evidenceDir := filepath.Join(dir, "no-mistakes", "feature")
-	if err := os.MkdirAll(evidenceDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(evidenceDir, "evidence.txt"), []byte("evidence"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(evidenceDir, "review-resolution.md"), []byte("local report"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	ag := &mockAgent{name: "test"}
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
 	sctx.Run.Branch = "feature"
-	sctx.Config.Test.Evidence = config.Evidence{StoreInRepo: true, Dir: "no-mistakes"}
+	reportRel := reviewreport.RepoReportRelativePath(sctx.Run.Branch, sctx.Run.ID)
+	reportPath := filepath.Join(dir, filepath.FromSlash(reportRel))
+	if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reportPath, []byte("repo report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	decoyPath := filepath.Join(dir, "no-mistakes", "other-branch", "review-resolution.md")
+	if err := os.MkdirAll(filepath.Dir(decoyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(decoyPath, []byte("decoy report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sctx.DB.UpsertReviewResolutionReport(db.ReviewResolutionReport{
+		RunID:             sctx.Run.ID,
+		ReportPath:        reportPath,
+		Status:            db.ReviewResolutionStatusFinal,
+		ReportVersion:     "1",
+		SourceWatermark:   "watermark",
+		ContentHash:       "hash",
+		LastRefreshResult: "ok",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	step := &PushStep{}
-	if err := step.stageInRepoEvidence(sctx); err != nil {
+	if err := step.stageReviewResolutionReport(sctx); err != nil {
 		t.Fatal(err)
 	}
 	status := gitStatusPorcelain(t, dir)
-	if !strings.Contains(status, "A  no-mistakes/feature/evidence.txt") {
-		t.Fatalf("expected normal evidence file staged, got status:\n%s", status)
+	if !strings.Contains(status, "A  "+reportRel) {
+		t.Fatalf("expected exact review report staged, got status:\n%s", status)
 	}
-	if strings.Contains(status, "review-resolution.md") {
-		t.Fatalf("repo-local review-resolution report was staged:\n%s", status)
+	if strings.Contains(status, "other-branch") {
+		t.Fatalf("decoy review report should not be staged:\n%s", status)
 	}
 }

@@ -5,10 +5,10 @@ max_iterations: 100
 # Overridden by `--tool <name>` on the command line.
 
 tool: codex
-model: gpt-5.3-codex
+model: gpt-5.5
 reasoning_effort: xhigh
 
-# Skip the consent gate (script runs `claude --dangerously-skip-permissions`).
+# Skip the consent gate (script runs the selected tool with permission bypass).
 # Set to 1 to opt in. Equivalent to either:
 #   export RALPH_I_UNDERSTAND_DANGEROUS=1
 #   touch .specify/extensions/ralph-loop/.consent

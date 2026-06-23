@@ -699,3 +699,17 @@ notes:
   - No hooks were registered under hooks.before_speckit_red_team_run.
   - The constitution does not declare a dedicated Red Team Trigger Criteria section; default trigger categories were used.
 ```
+
+## Correction Note - 2026-06-21
+
+This red-team apply record is historical context. It does not override the
+binding `## Decisions` section in
+`plans/grill-me/review-resolution-report.md`. The prior spec state that rejected
+repo-local committed report artifacts came from an invalid `superseded` header,
+not from a valid grill-me decision.
+
+Any finding application that reinforced `$NM_HOME/reports/<runID>/review-resolution.md`,
+forbade exact force-add staging, or removed committed report references from PR
+surfaces is superseded by this correction. Current implementation must preserve
+repo-local committed evidence at `no-mistakes/<branch-slug>/review-resolution.md`
+and keep PR output limited to compact status/counts plus the repo-relative path.
